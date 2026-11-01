@@ -40,7 +40,7 @@ class MainActivity : Activity() {
         deviceId = EditText(this).apply {
             hint = "Identifiant de cet appareil (ex. telephone-a)"
             setText(preferences.getString("device_id", "telephone-a"))
-            singleLine = true
+            setSingleLine(true)
         }
         content.addView(deviceId, matchWidth())
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
