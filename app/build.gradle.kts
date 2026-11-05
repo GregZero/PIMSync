@@ -20,8 +20,12 @@ android {
         applicationId = "fr.pimsync.prototype"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // GitHub Actions run numbers make each published build uniquely identifiable.
+        // Local builds keep a usable development version when this variable is absent.
+        val githubRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        val githubRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toIntOrNull() ?: 1
+        versionCode = githubRunNumber?.let { it * 100 + githubRunAttempt } ?: 1
+        versionName = githubRunNumber?.let { "0.1.$it" } ?: "0.1.0"
     }
 }
 

@@ -4,7 +4,7 @@ Cette application utilise le dossier local sélectionné avec SAF. Elle ne commu
 
 ## Compilation sur GitHub
 
-Le workflow **Build Android prototype** se lance à chaque envoi de code et demande de fusion. Il exécute les tests du moteur, compile l’APK Android et publie l’artefact `pimsync-prototype-debug-apk` pendant 14 jours.
+Le workflow **Build Android prototype** se lance à chaque envoi de code et demande de fusion. Il exécute les tests du moteur, compile l’APK Android et publie l’artefact `pimsync-prototype-<numéro>` pendant 14 jours. Le numéro de compilation GitHub apparaît dans le nom de l’artefact et dans la version Android (par exemple `0.1.42`), ce qui permet d’identifier l’APK installée.
 
 ## Essai sur Android
 
