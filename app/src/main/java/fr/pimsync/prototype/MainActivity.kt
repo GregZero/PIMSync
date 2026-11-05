@@ -112,20 +112,28 @@ class MainActivity : Activity() {
     }
 
     private fun deviceDirectory(root: DocumentFile, id: String): DocumentFile? {
-        val pimsync = root.findFile("PIMSync") ?: root.createDirectory("PIMSync")
-        val devices = pimsync?.findFile("devices") ?: pimsync?.createDirectory("devices")
-        return devices?.findFile(id) ?: devices?.createDirectory(id)
+        val pimsync = ensureDirectory(root, "PIMSync")
+        val devices = ensureDirectory(pimsync, "devices")
+        return ensureDirectory(devices, id)
+    }
+
+    private fun ensureDirectory(parent: DocumentFile, name: String): DocumentFile {
+        val existing = parent.findFile(name)
+        if (existing != null) {
+            check(existing.isDirectory) { "'$name' existe mais n’est pas un dossier" }
+            return existing
+        }
+        return parent.createDirectory(name)
+            ?: error("Impossible de créer le dossier '$name' via SAF")
     }
 
     private fun runFileTest() {
         val id = saveDeviceId() ?: return
         try {
             val root = selectedRoot() ?: return
-            val tests = root.findFile("PIMSync")?.findFile("prototype-tests")
-                ?: root.findFile("PIMSync")?.createDirectory("prototype-tests")
-                ?: error("Impossible de créer PIMSync/prototype-tests")
-            val perDevice = tests.findFile(id) ?: tests.createDirectory(id)
-                ?: error("Impossible de créer le dossier de test")
+            val pimsync = ensureDirectory(root, "PIMSync")
+            val tests = ensureDirectory(pimsync, "prototype-tests")
+            val perDevice = ensureDirectory(tests, id)
             val name = "saf-test-${UUID.randomUUID()}.txt"
             val file = perDevice.createFile("text/plain", name) ?: error("Création refusée par le fournisseur SAF")
             writeText(file, "première version")
