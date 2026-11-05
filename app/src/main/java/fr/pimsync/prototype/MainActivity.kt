@@ -37,7 +37,7 @@ class MainActivity : Activity() {
         setContentView(scroll)
 
         content.addView(TextView(this).apply {
-            text = "PIMSync — prototype SAF et moteur\n\nLes opérations ci-dessous portent sur une note fictive. Aucun contact, agenda ou tâche du téléphone n’est lu ni modifié."
+            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes opérations ci-dessous portent sur une note fictive. Aucun contact, agenda ou tâche du téléphone n’est lu ni modifié."
             textSize = 18f
         })
         deviceId = EditText(this).apply {
