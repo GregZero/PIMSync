@@ -11,8 +11,11 @@ Le workflow **Build Android prototype** se lance à chaque envoi de code et dema
 1. Téléchargez l’artefact depuis une exécution réussie dans GitHub Actions, décompressez-le, puis installez l’APK.
 2. Sur chaque téléphone, choisissez le même dossier local déjà synchronisé. Donnez un identifiant différent à chaque appareil.
 3. Vérifiez le test de fichiers SAF. Il crée, lit et modifie un fichier temporaire, tente de le renommer, puis le supprime dans `PIMSync/prototype-tests/<identifiant>/`.
-4. Entrez un texte fictif et choisissez **Enregistrer cette note de test**. Une opération JSON immuable est écrite dans `PIMSync/devices/<identifiant>/operations/`.
-5. Choisissez **Actualiser l’état et les conflits** après que Syncthing-Fork a répliqué les opérations. Une seule version causale apparaît comme actuelle ; les versions concurrentes sont affichées comme conflit.
+4. Suivez dans l’application le **Parcours guidé — essai sur deux téléphones**. Il explique la préparation, la création et la lecture d’une note, les modifications hors ligne concurrentes, la résolution et le conflit suppression/modification.
+5. Créez un code de session sur le premier téléphone et recopiez-le sur le second. Chaque session utilise un identifiant de note distinct ; aucun ancien journal n’est effacé.
+6. À la fin, touchez **Copier mon compte-rendu à coller dans le chat** sur chaque téléphone et collez les deux rapports dans la conversation. L’avancement et les résultats notés sont conservés localement sur chaque téléphone.
+
+Les opérations de chaque session restent des fichiers JSON immuables dans `PIMSync/devices/<identifiant>/operations/`. Un nouveau code de session isole l’essai sans supprimer ces fichiers ni les anciens marqueurs de suppression.
 
 Pour vérifier un conflit, créez d’abord une note de base et attendez qu’elle soit répliquée sur les deux appareils. Déconnectez temporairement les appareils de Syncthing-Fork, enregistrez un texte différent sur chacun, puis reconnectez-les. Après réplication, actualisez l’état sur l’un des téléphones : les deux versions doivent rester visibles. Une nouvelle note enregistrée après lecture du conflit le résout explicitement avec le texte saisi.
 
