@@ -32,8 +32,8 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
 
-      - name: Compiler l’APK de test
-        run: gradle --no-daemon assembleDebug
+      - name: Tester le moteur et compiler l’APK
+        run: gradle --no-daemon :engine:test :app:assembleDebug
 
       - name: Publier l’APK comme artefact téléchargeable
         uses: actions/upload-artifact@v6

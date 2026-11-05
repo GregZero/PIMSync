@@ -11,12 +11,15 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.documentfile.provider.DocumentFile
-import org.json.JSONObject
+import fr.pimsync.engine.ObjectInspection
+import fr.pimsync.engine.ObjectState
+import fr.pimsync.engine.PimSyncEngine
 import java.util.UUID
 
 class MainActivity : Activity() {
     private val preferences by lazy { getSharedPreferences("pimsync-prototype", MODE_PRIVATE) }
     private lateinit var deviceId: EditText
+    private lateinit var demoNoteText: EditText
     private lateinit var status: TextView
     private var selectedTree: Uri?
         get() = preferences.getString("tree_uri", null)?.let(Uri::parse)
@@ -34,7 +37,7 @@ class MainActivity : Activity() {
         setContentView(scroll)
 
         content.addView(TextView(this).apply {
-            text = "PIMSync — prototype SAF\n\nCette version ne lit ni ne modifie vos contacts ou agendas. Elle utilise uniquement le dossier choisi ci-dessous."
+            text = "PIMSync — prototype SAF et moteur\n\nLes opérations ci-dessous portent sur une note fictive. Aucun contact, agenda ou tâche du téléphone n’est lu ni modifié."
             textSize = 18f
         })
         deviceId = EditText(this).apply {
@@ -46,7 +49,19 @@ class MainActivity : Activity() {
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
         addButton(content, "Tester créer / lire / modifier / renommer / supprimer") { runFileTest() }
-        addButton(content, "Écrire une opération dans le journal de cet appareil") { writeOperation() }
+        content.addView(TextView(this).apply {
+            text = "Note fictive partagée par les appareils"
+            textSize = 16f
+        })
+        demoNoteText = EditText(this).apply {
+            hint = "Exemple : rendez-vous fictif mardi à 10 h"
+            setSingleLine(false)
+            minLines = 2
+        }
+        content.addView(demoNoteText, matchWidth())
+        addButton(content, "Enregistrer cette note de test") { writeDemoNote() }
+        addButton(content, "Supprimer la note de test (garder un marqueur)") { deleteDemoNote() }
+        addButton(content, "Actualiser l’état et les conflits") { refreshDemoNote() }
         status = TextView(this).apply {
             textSize = 15f
             text = "Aucun dossier sélectionné."
@@ -111,12 +126,6 @@ class MainActivity : Activity() {
             }
     }
 
-    private fun deviceDirectory(root: DocumentFile, id: String): DocumentFile? {
-        val pimsync = ensureDirectory(root, "PIMSync")
-        val devices = ensureDirectory(pimsync, "devices")
-        return ensureDirectory(devices, id)
-    }
-
     private fun ensureDirectory(parent: DocumentFile, name: String): DocumentFile {
         val existing = parent.findFile(name)
         if (existing != null) {
@@ -153,27 +162,65 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun writeOperation() {
+    private fun writeDemoNote() {
+        val payload = demoNoteText.text.toString()
+        if (payload.isBlank()) {
+            status.text = "Saisissez d’abord un texte de démonstration."
+            return
+        }
+        runEngineAction { engine ->
+            val operation = engine.upsert(DEMO_NOTE_ID, payload)
+            "Note enregistrée dans l’opération ${operation.operationId}.\n${describe(engine.inspect(DEMO_NOTE_ID))}"
+        }
+    }
+
+    private fun deleteDemoNote() {
+        runEngineAction { engine ->
+            val operation = engine.delete(DEMO_NOTE_ID)
+            "Marqueur de suppression écrit (${operation.operationId}).\n${describe(engine.inspect(DEMO_NOTE_ID))}"
+        }
+    }
+
+    private fun refreshDemoNote() {
+        runEngineAction { engine -> describe(engine.inspect(DEMO_NOTE_ID)) }
+    }
+
+    private fun runEngineAction(action: (PimSyncEngine) -> String) {
         val id = saveDeviceId() ?: return
-        try {
-            val root = selectedRoot() ?: return
-            val device = deviceDirectory(root, id) ?: error("Impossible de créer le dossier de l’appareil")
-            val operations = device.findFile("operations") ?: device.createDirectory("operations")
-                ?: error("Impossible de créer le journal")
-            val operationId = UUID.randomUUID().toString()
-            val json = JSONObject()
-                .put("schemaVersion", 1)
-                .put("operationId", operationId)
-                .put("deviceId", id)
-                .put("type", "prototype-check")
-                .put("createdAt", System.currentTimeMillis())
-                .toString()
-            val record = operations.createFile("application/json", "op-$operationId.json")
-                ?: error("Le fournisseur SAF n’a pas créé le fichier d’opération")
-            writeText(record, json)
-            status.text = "Opération écrite dans PIMSync/devices/$id/operations. Chaque opération a son propre fichier."
-        } catch (e: Exception) {
-            status.text = "Échec d’écriture : ${e.message ?: e.javaClass.simpleName}"
+        val root = selectedRoot() ?: return
+        status.text = "Lecture du journal PIMSync…"
+        Thread({
+            val message = try {
+                val store = SafOperationStore(contentResolver, root, id)
+                action(PimSyncEngine(store, id))
+            } catch (e: Exception) {
+                "Échec du moteur : ${e.message ?: e.javaClass.simpleName}"
+            }
+            runOnUiThread { status.text = message }
+        }, "pimsync-demo-engine").start()
+    }
+
+    private fun describe(inspection: ObjectInspection): String = buildString {
+        when (val state = inspection.state) {
+            ObjectState.Missing -> append("Aucune note de test n’a encore été enregistrée.")
+            is ObjectState.Current -> append("Une version actuelle (${state.operation.deviceId}) : ${state.operation.payload}")
+            is ObjectState.Deleted -> append("La note est supprimée. Son marqueur reste dans le journal (${state.tombstone.deviceId}).")
+            is ObjectState.Conflict -> {
+                appendLine("CONFLIT : ${state.concurrentOperations.size} versions concurrentes sont conservées.")
+                state.concurrentOperations.forEach { operation ->
+                    val value = if (operation.kind.name == "DELETE") "suppression" else operation.payload
+                    appendLine("• ${operation.deviceId} : $value")
+                }
+                if (state.concurrentOperations.isNotEmpty()) setLength(length - 1)
+            }
+        }
+        if (inspection.invalidRecords.isNotEmpty()) {
+            appendLine()
+            append("Fichiers incomplets/illisibles : ${inspection.invalidRecords.size}. Attendez la fin de la réplication puis actualisez.")
+        }
+        if (inspection.ignoredRecords.isNotEmpty()) {
+            appendLine()
+            append("Anciens fichiers de test ignorés : ${inspection.ignoredRecords.size}.")
         }
     }
 
@@ -194,5 +241,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_TREE = 42
+        private const val DEMO_NOTE_ID = "shared-demo-note"
     }
 }

@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PIMSyncPrototype"
-include(":app")
+include(":app", ":engine")

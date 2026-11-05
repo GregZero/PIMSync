@@ -1,20 +1,24 @@
-# PIMSync — prototype Android SAF
+# PIMSync — prototype SAF et moteur d’opérations
 
-Ce prototype vérifie l’accès au dossier déjà synchronisé par Syncthing-Fork. Il ne communique pas avec Syncthing, ne démarre aucun service Syncthing et ne touche pas aux contacts ou agendas.
+Cette application utilise le dossier local sélectionné avec SAF. Elle ne communique pas avec Syncthing-Fork, ne démarre aucun service Syncthing et ne lit ni ne modifie les contacts, agendas ou tâches du téléphone. La note proposée dans l’application est fictive.
 
-## Compiler avec GitHub
+## Compilation sur GitHub
 
-Après avoir placé ce dépôt sur GitHub, l’action **Build Android prototype** se lance à chaque envoi de code, demande de fusion, ou manuellement depuis l’onglet **Actions**. Le fichier `app-debug.apk` apparaît dans les artefacts de l’exécution pendant 14 jours.
+Le workflow **Build Android prototype** se lance à chaque envoi de code et demande de fusion. Il exécute les tests du moteur, compile l’APK Android et publie l’artefact `pimsync-prototype-debug-apk` pendant 14 jours.
 
 ## Essai sur Android
 
-1. Téléchargez `pimsync-prototype-debug-apk` depuis une exécution réussie dans GitHub Actions, puis installez l’APK sur le téléphone.
-2. Choisissez le dossier PIMSync existant à l’aide du sélecteur Android. L’application demande et conserve l’autorisation SAF.
-3. Lancez le test des fichiers. Il crée un fichier temporaire, le lit, le modifie, tente de le renommer et le supprime dans `PIMSync/prototype-tests/<identifiant>/`.
-4. Écrivez une opération. Elle est enregistrée dans un nouveau fichier JSON sous `PIMSync/devices/<identifiant>/operations/`.
-5. Sur un second appareil, choisissez le même dossier et utilisez un identifiant distinct pour écrire dans un journal indépendant.
+1. Téléchargez l’artefact depuis une exécution réussie dans GitHub Actions, décompressez-le, puis installez l’APK.
+2. Sur chaque téléphone, choisissez le même dossier local déjà synchronisé. Donnez un identifiant différent à chaque appareil.
+3. Vérifiez le test de fichiers SAF. Il crée, lit et modifie un fichier temporaire, tente de le renommer, puis le supprime dans `PIMSync/prototype-tests/<identifiant>/`.
+4. Entrez un texte fictif et choisissez **Enregistrer cette note de test**. Une opération JSON immuable est écrite dans `PIMSync/devices/<identifiant>/operations/`.
+5. Choisissez **Actualiser l’état et les conflits** après que Syncthing-Fork a répliqué les opérations. Une seule version causale apparaît comme actuelle ; les versions concurrentes sont affichées comme conflit.
 
-Les résultats du renommage et de la suppression dépendent du fournisseur de fichiers Android et sont affichés dans l’application.
+Pour vérifier un conflit, créez d’abord une note de base et attendez qu’elle soit répliquée sur les deux appareils. Déconnectez temporairement les appareils de Syncthing-Fork, enregistrez un texte différent sur chacun, puis reconnectez-les. Après réplication, actualisez l’état sur l’un des téléphones : les deux versions doivent rester visibles. Une nouvelle note enregistrée après lecture du conflit le résout explicitement avec le texte saisi.
+
+Les actions de suppression écrivent un marqueur de suppression (tombstone) au lieu d’effacer les opérations précédentes. Une suppression et une modification faites hors ligne doivent apparaître ensemble comme conflit.
+
+Les modifications de fichier restent dans un dossier d’essai. Les modifications de la note fictive restent dans le journal PIMSync. Aucun fournisseur Android de contacts, agenda, tâches ou notes n’est utilisé à cette étape.
 
 ## Versions de compilation
 
