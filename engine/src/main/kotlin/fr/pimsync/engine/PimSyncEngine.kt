@@ -56,7 +56,19 @@ class PimSyncEngine(
 
     fun delete(objectId: String): Operation = appendNew(objectId, OperationKind.DELETE, null)
 
-    private fun appendNew(objectId: String, kind: OperationKind, payload: String?): Operation {
+    /** Appends an Android account edit from its last-synchronized causal version. */
+    fun upsertFromBase(objectId: String, payload: String, baseVersion: VersionVector): Operation =
+        appendNew(objectId, OperationKind.UPSERT, payload, baseVersion)
+
+    fun deleteFromBase(objectId: String, baseVersion: VersionVector): Operation =
+        appendNew(objectId, OperationKind.DELETE, null, baseVersion)
+
+    private fun appendNew(
+        objectId: String,
+        kind: OperationKind,
+        payload: String?,
+        baseVersion: VersionVector? = null
+    ): Operation {
         require(objectId.matches(Operation.OBJECT_ID_PATTERN)) { "Invalid object identifier: $objectId" }
         require(kind != OperationKind.UPSERT || payload != null) { "A demonstration edit needs text" }
         val read = store.readAll()
@@ -64,7 +76,7 @@ class PimSyncEngine(
             "Some journal files are incomplete or unreadable. Refresh after replication finishes before writing."
         }
         val history = uniqueOperations(read.operations).filter { it.objectId == objectId }
-        val mergedVersion = VersionVector.joinAll(history.map { it.version }).increment(deviceId)
+        val mergedVersion = (baseVersion ?: VersionVector.joinAll(history.map { it.version })).increment(deviceId)
         val operation = Operation(
             schemaVersion = Operation.CURRENT_SCHEMA_VERSION,
             operationId = newOperationId(),

@@ -8,7 +8,9 @@ Le workflow **Build Android prototype** se lance à chaque envoi de code et dema
 
 L’étude DAVx⁵ et le choix d’architecture proposé sont documentés dans [docs/etude-davx5-architecture.md](docs/etude-davx5-architecture.md).
 
-Le prototype comprend des contrôles facultatifs du fournisseur Contacts Android : après autorisation explicite, il peut compter les contacts ou afficher un aperçu local du contact choisi. Un essai séparé permet d’exporter une fiche choisie en vCard dans le journal PIMSync, après confirmation indiquant que les nom, téléphones et e-mails seront répliqués par Syncthing. Le carnet Android n’est jamais modifié. Sur l’autre appareil, « Afficher les contacts exportés dans PIMSync » vérifie la lecture du journal partagé ; l’application ne les ajoute pas encore au carnet système.
+L’application propose maintenant un compte de synchronisation Contacts Android **PIMSync**. Elle synchronise les opérations `pimsync-test-*` du journal avec les fiches du compte PIMSync et renvoie au journal les créations, modifications et suppressions faites dans ce compte. Les comptes Google, SIM et appareil ne sont pas parcourus. Le test de compte crée des données fictives (`example.invalid`) et n’importe aucun contact personnel.
+
+Pour l’essai ciblé, active **Activer le compte de contacts PIMSync et synchroniser** sur les deux téléphones, puis autorise l’accès Contacts. Crée un contact fictif sur A et attends Syncthing. Sur B, retouche le bouton d’activation/synchronisation pour relire le dossier partagé, puis vérifie dans l’application Contacts que PIMSync apparaît comme compte de stockage. Le parcours guidé décrit aussi la création d’une seconde fiche fictive depuis Contacts en choisissant PIMSync.
 
 Les tests guidés permettent de reprendre directement à l’étape « écran et contacts » sans créer de session ni rejouer les essais de synchronisation. Les résultats précédents sont conservés dans le compte-rendu et chaque nouvelle validation indique la version de l’application.
 

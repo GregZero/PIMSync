@@ -28,12 +28,12 @@ Je ne recommande pas un fork DAVx⁵ à ce stade : la synchronisation de PIMSync
 
 ## Suite proposée
 
-1. Finir et publier le correctif de mise en page Android en cours, avec les tests guidés désormais validés sur deux appareils.
-2. Définir un format vCard et un adaptateur de contacts isolé derrière une interface ; commencer par la lecture et l’export confirmé d’un contact choisi dans le journal PIMSync, sans modifier les contacts Android.
-3. Après validation sur les téléphones, étudier la création d’un contact d’essai dans le compte Contacts Android propre à PIMSync, puis seulement plus tard étudier la synchronisation des contacts existants.
+1. **Terminé** : correctif de mise en page Android, avec parcours de tests ciblés validés sur les téléphones.
+2. **Validé sur deux appareils** : export vCard confirmé vers le journal PIMSync et lecture du contact répliqué. Le prototype permet maintenant de consulter les nom, téléphones et e-mails du journal ; aucune fiche Android n’est modifiée.
+3. **Implémenté, à valider sur les téléphones** : compte Android PIMSync, synchroniseur bidirectionnel limité aux fiches du compte PIMSync et aux objets `pimsync-test-*`, et création d’une fiche fictive. Vérifier que Contacts propose PIMSync comme destination et que les créations, modifications et suppressions de test se répliquent entre appareils.
 4. Étudier ensuite les événements iCalendar et le cas particulier des tâches, qui dépend du fournisseur installé.
 
-Avant tout accès en écriture aux contacts Android, l’application devra expliquer la portée de l’autorisation et proposer un mode d’essai séparé. Le premier export vCard actuel écrit uniquement dans le journal PIMSync après confirmation ; il ne crée ni ne modifie de fiche dans le fournisseur Contacts Android.
+L’accès en écriture du synchroniseur est limité aux raw contacts rattachés au compte de type PIMSync. Il demande les autorisations Android de lecture et d’écriture avant l’activation. Les opérations de test utilisent des identifiants `pimsync-test-*` et des données fictives ; l’application n’importe pas les contacts des autres comptes.
 
 ## Sources
 

@@ -3,6 +3,7 @@ package fr.pimsync.prototype
 import android.app.Activity
 import android.Manifest
 import android.app.AlertDialog
+import android.accounts.AccountManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -11,6 +12,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.content.ContentResolver
 import android.provider.ContactsContract
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -38,7 +40,6 @@ class MainActivity : Activity() {
     private lateinit var guideInstructions: TextView
     private lateinit var guideExpected: TextView
     private var pendingContactPreview = false
-    private var pendingContactExport = false
     private var selectedTree: Uri?
         get() = preferences.getString("tree_uri", null)?.let(Uri::parse)
         set(value) { preferences.edit().putString("tree_uri", value?.toString()).apply() }
@@ -76,7 +77,7 @@ class MainActivity : Activity() {
         }
 
         content.addView(TextView(this).apply {
-            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes notes de test sont fictives. La lecture des contacts est facultative. L’export d’un contact sélectionné vers le journal partagé demande une confirmation ; aucun contact Android n’est modifié."
+            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes contacts personnels ne sont pas synchronisés par le compte de test PIMSync. Seules les fiches placées dans le compte PIMSync dédié sont échangées."
             textSize = 18f
         })
         addGuide(content)
@@ -89,13 +90,14 @@ class MainActivity : Activity() {
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
         content.addView(TextView(this).apply {
-            text = "Contacts Android — lecture et export d’essai. Le contact choisi reste local jusqu’à confirmation. Après confirmation, ses nom, téléphones et e-mails seront écrits dans le journal PIMSync partagé et répliqués par Syncthing. Le carnet Android n’est pas modifié."
+            text = "Compte Contacts Android PIMSync — synchronisation limitée aux fiches de test de ce compte. Les comptes Google, SIM et appareil restent hors périmètre."
             textSize = 16f
         })
+        addButton(content, "Activer le compte de contacts PIMSync et synchroniser") { enablePimSyncAccount() }
+        addButton(content, "Créer un contact fictif dans le journal PIMSync") { createPimSyncTestContact() }
         addButton(content, "Compter les contacts (lecture seule)") { inspectContactsReadOnly() }
         addButton(content, "Choisir un contact et afficher l’aperçu (lecture seule)") { chooseContactForReadOnlyPreview() }
-        addButton(content, "Exporter un contact choisi vers PIMSync (avec confirmation)") { chooseContactForExport() }
-        addButton(content, "Afficher les contacts exportés dans PIMSync") { showSharedContacts() }
+        addButton(content, "Afficher les contacts du journal PIMSync") { showSharedContacts() }
         addButton(content, "Tester créer / lire / modifier / renommer / supprimer") { runFileTest() }
         content.addView(TextView(this).apply {
             text = "Note fictive partagée par les appareils"
@@ -177,8 +179,8 @@ class MainActivity : Activity() {
             preferences.edit().putInt(KEY_GUIDE_STEP, GUIDE_CONTACT_PREVIEW_STEP).apply()
             renderGuide()
         }
-        addButton(content, "Test ciblé : exporter un contact et le retrouver sur l’autre téléphone") {
-            preferences.edit().putInt(KEY_GUIDE_STEP, GUIDE_CONTACT_EXPORT_STEP).apply()
+        addButton(content, "Test ciblé : compte de contacts PIMSync") {
+            preferences.edit().putInt(KEY_GUIDE_STEP, GUIDE_NATIVE_ACCOUNT_STEP).apply()
             renderGuide()
         }
         addButton(content, "Refaire les contrôles contacts (comptage et aperçu)") {
@@ -262,9 +264,9 @@ class MainActivity : Activity() {
             "L’aperçu local montre le nom, les téléphones et les adresses e-mail disponibles. Ferme-le après vérification. Aucun détail de contact n’est ajouté au compte-rendu."
         ),
         GuideStep(
-            "11 — Exporter un contact choisi et le lire sur l’autre téléphone",
-            "Sur A, choisis un contact d’essai et touche Exporter un contact choisi vers PIMSync. Vérifie le nom et le nombre de téléphones/e-mails dans la confirmation, puis confirme seulement si tu acceptes que ces données soient copiées dans le dossier Syncthing partagé. Attends la réplication. Sur B, touche Afficher les contacts exportés dans PIMSync.",
-            "B doit afficher le nom exporté. L’export n’ajoute ni ne modifie encore de fiche dans l’application Contacts Android. Annule la confirmation pour vérifier qu’aucune fiche n’est exportée si tu ne souhaites pas partager un contact réel."
+            "11 — Synchroniser des contacts d’essai avec le compte PIMSync",
+            "Sur les deux téléphones, choisis le dossier partagé, touche Activer le compte de contacts PIMSync et synchroniser, puis accepte READ_CONTACTS et WRITE_CONTACTS. Sur A, touche Créer un contact fictif dans le journal PIMSync. Attends la synchronisation Syncthing. Sur B, retouche Activer le compte de contacts PIMSync et synchroniser pour relire le journal, puis vérifie dans Contacts que la fiche apparaît sous PIMSync. Pour vérifier le retour Android vers PIMSync, crée ensuite une fiche fictive directement dans Contacts en choisissant PIMSync comme destination, puis vérifie sa réplication sur l’autre téléphone.",
+            "Les contacts créés dans les comptes Google, SIM ou appareil restent inchangés. Les deux fiches d’essai uniquement doivent être visibles sous le compte PIMSync sur les deux téléphones."
         ),
         GuideStep(
             "12 — Envoyer les résultats",
@@ -411,27 +413,77 @@ class MainActivity : Activity() {
         launchContactPicker()
     }
 
-    private fun chooseContactForExport() {
-        if (selectedTree == null) {
-            status.text = "Choisissez d’abord le dossier PIMSync partagé."
-            return
-        }
-        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            pendingContactPreview = false
-            pendingContactExport = true
-            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_READ_CONTACTS)
-            return
-        }
-        launchContactPicker(REQUEST_PICK_CONTACT_EXPORT)
+    private fun enablePimSyncAccount() {
+        if (selectedRoot() == null) return
+        AlertDialog.Builder(this)
+            .setTitle("Activer les contacts de test PIMSync ?")
+            .setMessage("Android demande l’autorisation de lire et modifier Contacts pour fournir le compte PIMSync. Le synchroniseur ne traite que les fiches enregistrées dans le compte PIMSync et les fiches fictives du journal PIMSync ; les comptes Google, SIM et appareil ne sont pas parcourus ni modifiés.")
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Continuer") { _, _ ->
+                val permissions = arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS)
+                if (permissions.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
+                    requestPermissions(permissions, REQUEST_CONTACT_ACCOUNT)
+                } else {
+                    configurePimSyncAccount()
+                }
+            }
+            .show()
     }
 
-    private fun launchContactPicker(requestCode: Int = REQUEST_PICK_CONTACT) {
+    private fun configurePimSyncAccount() {
+        val id = saveDeviceId() ?: return
+        if (selectedRoot() == null) return
+        try {
+            val account = PimSyncAccount.account()
+            AccountManager.get(this).addAccountExplicitly(account, null, null)
+            ContentResolver.setIsSyncable(account, PimSyncAccount.AUTHORITY, 1)
+            ContentResolver.setSyncAutomatically(account, PimSyncAccount.AUTHORITY, true)
+            preferences.edit().putBoolean(PimSyncAccount.PREFERENCE_ACCOUNT_ENABLED, true).apply()
+            ContentResolver.requestSync(account, PimSyncAccount.AUTHORITY, Bundle().apply {
+                putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+            })
+            status.text = "Compte PIMSync activé sur $id. Les fiches fictives du journal seront synchronisées vers Contacts."
+        } catch (e: Exception) {
+            status.text = "Activation du compte Contacts PIMSync impossible : ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun createPimSyncTestContact() {
+        val id = saveDeviceId() ?: return
+        val root = selectedRoot() ?: return
+        val token = UUID.randomUUID().toString().take(8)
+        val objectId = "${PimSyncContactsSyncAdapter.TEST_CONTACT_PREFIX}${UUID.randomUUID()}"
+        val card = PimContactCard(
+            displayName = "PIMSync Test $id $token",
+            phones = listOf("00000000"),
+            emails = listOf("pimsync-test-$token@example.invalid")
+        )
+        status.text = "Création du contact fictif dans le journal PIMSync…"
+        Thread({
+            val message = try {
+                val engine = PimSyncEngine(SafOperationStore(contentResolver, root, id), id)
+                val operation = engine.upsert(objectId, VCardCodec.encode(card))
+                if (preferences.getBoolean(PimSyncAccount.PREFERENCE_ACCOUNT_ENABLED, false)) {
+                    ContentResolver.requestSync(PimSyncAccount.account(), PimSyncAccount.AUTHORITY, Bundle().apply {
+                        putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                        putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                    })
+                }
+                "Contact fictif écrit dans PIMSync (${operation.operationId}). Active le compte Contacts PIMSync si ce n’est pas déjà fait, puis attends la synchronisation Android et Syncthing."
+            } catch (e: Exception) {
+                "Création du contact fictif impossible : ${e.message ?: e.javaClass.simpleName}"
+            }
+            runOnUiThread { status.text = message }
+        }, "pimsync-test-contact").start()
+    }
+
+    private fun launchContactPicker() {
         pendingContactPreview = false
-        pendingContactExport = false
         try {
             startActivityForResult(
                 Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI),
-                requestCode
+                REQUEST_PICK_CONTACT
             )
         } catch (e: Exception) {
             status.text = "Impossible d’ouvrir le sélecteur de contacts : ${e.message ?: e.javaClass.simpleName}"
@@ -490,86 +542,74 @@ class MainActivity : Activity() {
                     ContactsContract.CommonDataKinds.Email.CONTACT_ID,
                     contactId
                 )
-                ContactCard(name, phones, emails)
+                PimContactCard(name, phones, emails)
             } catch (e: Exception) {
                 e
             }
             runOnUiThread {
-                if (preview is ContactCard) onRead(preview.name, preview.phones, preview.emails)
+                if (preview is PimContactCard) onRead(preview.displayName, preview.phones, preview.emails)
                 else status.text = "Lecture impossible : ${(preview as Exception).message ?: preview.javaClass.simpleName}"
             }
         }, "pimsync-contact-preview").start()
     }
 
-    private fun exportSelectedContact(contactUri: Uri) {
-        readSelectedContact(contactUri) { name, phones, emails ->
-            val summary = buildString {
-                appendLine("${name.ifBlank { "(sans nom)" }}")
-                appendLine("${phones.size} téléphone(s), ${emails.size} e-mail(s)")
-                append("Après confirmation, ces données seront écrites dans le dossier partagé PIMSync et copiées vers les appareils synchronisés. Aucun contact Android ne sera modifié.")
-            }
-            AlertDialog.Builder(this)
-                .setTitle("Confirmer l’export du contact ?")
-                .setMessage(summary)
-                .setNegativeButton("Annuler", null)
-                .setPositiveButton("Exporter vers PIMSync") { _, _ ->
-                    val vCard = buildVCard(name, phones, emails)
-                    val objectId = "contact-${UUID.randomUUID()}"
-                    runEngineAction { engine ->
-                        val operation = engine.upsert(objectId, vCard)
-                        "Contact exporté dans le journal PIMSync (${operation.operationId}). Laisse Syncthing répliquer le dossier, puis vérifie sur l’autre téléphone."
-                    }
-                }
-                .show()
-        }
-    }
-
-    private data class ContactCard(val name: String, val phones: List<String>, val emails: List<String>)
-
-    private fun buildVCard(name: String, phones: List<String>, emails: List<String>): String = buildString {
-        append("BEGIN:VCARD\r\nVERSION:3.0\r\n")
-        append("FN:${escapeVCard(name.ifBlank { "Contact sans nom" })}\r\n")
-        if (name.isNotBlank()) append("N:${escapeVCard(name)};;;;\r\n")
-        phones.forEach { append("TEL:${escapeVCard(it)}\r\n") }
-        emails.forEach { append("EMAIL:${escapeVCard(it)}\r\n") }
-        append("END:VCARD\r\n")
-    }
-
-    private fun escapeVCard(value: String): String = value
-        .replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace(",", "\\,")
-        .replace(";", "\\;")
-
     private fun showSharedContacts() {
-        runEngineAction { engine ->
-            val contacts = engine.inspectAll().filter { it.objectId.startsWith("contact-") }
-            if (contacts.isEmpty()) return@runEngineAction "Aucun contact PIMSync trouvé dans le dossier partagé."
-            buildString {
-                appendLine("Contacts présents dans les journaux PIMSync : ${contacts.size}")
-                contacts.forEach { inspection ->
-                    append("• ")
-                    when (val state = inspection.state) {
-                        ObjectState.Missing -> appendLine("${inspection.objectId} (sans version)")
-                        is ObjectState.Current -> appendLine(vCardName(state.operation.payload.orEmpty()))
-                        is ObjectState.Deleted -> appendLine("${vCardName(state.tombstone.payload.orEmpty())} (supprimé)")
-                        is ObjectState.Conflict -> appendLine("Conflit — ${state.concurrentOperations.size} versions")
+        val id = saveDeviceId() ?: return
+        val root = selectedRoot() ?: return
+        status.text = "Lecture des contacts du journal partagé…"
+        Thread({
+            val result = try {
+                val engine = PimSyncEngine(SafOperationStore(contentResolver, root, id), id)
+                val entries = engine.inspectAll()
+                    .filter { it.objectId.startsWith("contact-") }
+                    .mapNotNull { inspection ->
+                        when (val state = inspection.state) {
+                            is ObjectState.Current -> {
+                                val card = VCardCodec.decode(state.operation.payload.orEmpty())
+                                val title = card.displayName.ifBlank { "Contact sans nom" }
+                                val details = buildString {
+                                    appendLine("Nom : $title")
+                                    appendLine("Téléphones : ${card.phones.size}")
+                                    card.phones.forEach { appendLine("• $it") }
+                                    appendLine("Adresses e-mail : ${card.emails.size}")
+                                    card.emails.forEach { appendLine("• $it") }
+                                    append("\nCette fiche est lue depuis le journal PIMSync. Le carnet Android n’a pas été modifié.")
+                                }
+                                title to details
+                            }
+                            is ObjectState.Conflict -> "Conflit" to "Cette fiche a ${state.concurrentOperations.size} versions concurrentes."
+                            is ObjectState.Deleted -> null
+                            ObjectState.Missing -> null
+                        }
+                    }
+                entries
+            } catch (e: Exception) {
+                e
+            }
+            runOnUiThread {
+                if (result is Exception) {
+                    status.text = "Lecture des contacts impossible : ${result.message ?: result.javaClass.simpleName}"
+                } else {
+                    @Suppress("UNCHECKED_CAST")
+                    val entries = result as List<Pair<String, String>>
+                    if (entries.isEmpty()) {
+                        status.text = "Aucun contact actif trouvé dans le journal PIMSync."
+                    } else {
+                        status.text = "${entries.size} contact(s) trouvé(s) dans le journal PIMSync."
+                        AlertDialog.Builder(this)
+                            .setTitle("Contacts PIMSync — toucher pour lire la fiche")
+                            .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
+                                val (name, details) = entries[which]
+                                AlertDialog.Builder(this).setTitle(name).setMessage(details)
+                                    .setPositiveButton("Fermer", null).show()
+                            }
+                            .setNegativeButton("Fermer", null)
+                            .show()
                     }
                 }
-                append("\nCes fiches sont dans le journal partagé. Elles ne sont pas encore ajoutées au carnet Android.")
             }
-        }
+        }, "pimsync-shared-contacts").start()
     }
-
-    private fun vCardName(vCard: String): String = vCard.lineSequence()
-        .firstOrNull { it.startsWith("FN:") }
-        ?.removePrefix("FN:")
-        ?.replace("\\n", " ")
-        ?.replace("\\,", ",")
-        ?.replace("\\;", ";")
-        ?.replace("\\\\", "\\")
-        ?.ifBlank { null }
-        ?: "Contact sans nom"
 
     private fun readContactValues(uri: Uri, column: String, idColumn: String, contactId: String): List<String> =
         contentResolver.query(uri, arrayOf(column), "$idColumn = ?", arrayOf(contactId), null)?.use { cursor ->
@@ -581,16 +621,19 @@ class MainActivity : Activity() {
     @Deprecated("The result is used to continue the user-requested read-only contacts check")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CONTACT_ACCOUNT) {
+            if (grantResults.size == 2 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                configurePimSyncAccount()
+            } else {
+                status.text = "Compte PIMSync non activé : les deux autorisations Contacts sont nécessaires. Aucun contact n’a été modifié."
+            }
+            return
+        }
         if (requestCode != REQUEST_READ_CONTACTS) return
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            when {
-                pendingContactExport -> launchContactPicker(REQUEST_PICK_CONTACT_EXPORT)
-                pendingContactPreview -> launchContactPicker()
-                else -> inspectContactsReadOnly()
-            }
+            if (pendingContactPreview) launchContactPicker() else inspectContactsReadOnly()
         } else {
             pendingContactPreview = false
-            pendingContactExport = false
             status.text = "Autorisation refusée. Aucun contact n’a été lu. Tu peux continuer les autres essais."
         }
     }
@@ -598,10 +641,8 @@ class MainActivity : Activity() {
     @Deprecated("The result is used to persist the SAF directory permission")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_PICK_CONTACT || requestCode == REQUEST_PICK_CONTACT_EXPORT) {
-            if (resultCode == RESULT_OK) data?.data?.let {
-                if (requestCode == REQUEST_PICK_CONTACT_EXPORT) exportSelectedContact(it) else previewSelectedContact(it)
-            }
+        if (requestCode == REQUEST_PICK_CONTACT) {
+            if (resultCode == RESULT_OK) data?.data?.let(::previewSelectedContact)
             return
         }
         if (requestCode != REQUEST_TREE || resultCode != RESULT_OK) return
@@ -748,10 +789,10 @@ class MainActivity : Activity() {
         private const val REQUEST_TREE = 42
         private const val REQUEST_READ_CONTACTS = 43
         private const val REQUEST_PICK_CONTACT = 44
-        private const val REQUEST_PICK_CONTACT_EXPORT = 45
+        private const val REQUEST_CONTACT_ACCOUNT = 46
         private const val GUIDE_CONTACTS_STEP = 9
         private const val GUIDE_CONTACT_PREVIEW_STEP = 10
-        private const val GUIDE_CONTACT_EXPORT_STEP = 11
+        private const val GUIDE_NATIVE_ACCOUNT_STEP = 11
         private const val KEY_SESSION_CODE = "guided_session_code"
         private const val KEY_GUIDE_STEP = "guided_step"
         private const val KEY_GUIDE_RESULTS = "guided_results"
