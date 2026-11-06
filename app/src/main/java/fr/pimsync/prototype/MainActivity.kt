@@ -2,6 +2,7 @@ package fr.pimsync.prototype
 
 import android.app.Activity
 import android.Manifest
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -36,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var guideTitle: TextView
     private lateinit var guideInstructions: TextView
     private lateinit var guideExpected: TextView
+    private var pendingContactPreview = false
     private var selectedTree: Uri?
         get() = preferences.getString("tree_uri", null)?.let(Uri::parse)
         set(value) { preferences.edit().putString("tree_uri", value?.toString()).apply() }
@@ -86,10 +88,11 @@ class MainActivity : Activity() {
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
         content.addView(TextView(this).apply {
-            text = "Contacts Android — vérification en lecture seule. L’application affichera uniquement un nombre. Aucun contact ne sera copié, modifié ou synchronisé."
+            text = "Contacts Android — contrôles en lecture seule. Le comptage affiche un nombre ; l’aperçu ne montre que le contact choisi et reste sur ce téléphone. Rien n’est copié dans PIMSync ni modifié."
             textSize = 16f
         })
         addButton(content, "Compter les contacts (lecture seule)") { inspectContactsReadOnly() }
+        addButton(content, "Choisir un contact et afficher l’aperçu (lecture seule)") { chooseContactForReadOnlyPreview() }
         addButton(content, "Tester créer / lire / modifier / renommer / supprimer") { runFileTest() }
         content.addView(TextView(this).apply {
             text = "Note fictive partagée par les appareils"
@@ -167,6 +170,14 @@ class MainActivity : Activity() {
             saveSessionCode()
             renderGuide()
         }
+        addButton(content, "Test ciblé : nouvel aperçu d’un contact") {
+            preferences.edit().putInt(KEY_GUIDE_STEP, GUIDE_CONTACT_PREVIEW_STEP).apply()
+            renderGuide()
+        }
+        addButton(content, "Refaire les contrôles contacts (comptage et aperçu)") {
+            preferences.edit().putInt(KEY_GUIDE_STEP, GUIDE_CONTACTS_STEP).apply()
+            renderGuide()
+        }
         guideProgress = TextView(this).apply { textSize = 16f }
         guideTitle = TextView(this).apply { textSize = 18f }
         guideInstructions = TextView(this).apply { textSize = 16f }
@@ -239,7 +250,12 @@ class MainActivity : Activity() {
             "Si tu accordes l’autorisation, l’application affiche uniquement le nombre de contacts détectés. Si tu refuses, aucun contact n’est lu et les autres essais continuent normalement."
         ),
         GuideStep(
-            "10 — Envoyer les résultats",
+            "10 — Prévisualiser un contact choisi (lecture seule)",
+            "Touche Choisir un contact et afficher l’aperçu. Android peut demander l’autorisation READ_CONTACTS ; choisis ensuite un contact dont tu acceptes d’afficher les coordonnées sur cet écran. Cette étape ne crée aucun fichier et ne transmet pas le contact.",
+            "L’aperçu local montre le nom, les téléphones et les adresses e-mail disponibles. Ferme-le après vérification. Aucun détail de contact n’est ajouté au compte-rendu."
+        ),
+        GuideStep(
+            "11 — Envoyer les résultats",
             "Sur chaque téléphone, touchez Copier mon compte-rendu à coller dans le chat. Revenez dans cette conversation et collez les deux comptes-rendus. Vous pouvez ajouter un commentaire dans le champ prévu plus bas.",
             "Le compte-rendu inclut la version de l’application, le code de session, l’identifiant de l’appareil, l’état courant et les étapes validées ou signalées."
         )
@@ -276,7 +292,7 @@ class MainActivity : Activity() {
         val code = saveSessionCode() ?: return
         val index = preferences.getInt(KEY_GUIDE_STEP, 0).coerceIn(0, guideSteps.lastIndex)
         val comment = resultComment.text.toString().trim()
-        val line = "Étape ${index + 1} (${guideSteps[index].title}) : ${if (success) "RÉUSSIE" else "ANOMALIE"}" +
+        val line = "Version ${BuildConfig.VERSION_NAME} — étape ${index + 1} (${guideSteps[index].title}) : ${if (success) "RÉUSSIE" else "ANOMALIE"}" +
             if (comment.isNotEmpty()) " — $comment" else ""
         val old = preferences.getString(KEY_GUIDE_RESULTS, "").orEmpty()
         preferences.edit()
@@ -352,6 +368,7 @@ class MainActivity : Activity() {
 
     private fun inspectContactsReadOnly() {
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            pendingContactPreview = false
             requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_READ_CONTACTS)
             return
         }
@@ -373,13 +390,94 @@ class MainActivity : Activity() {
         }, "pimsync-read-only-contacts").start()
     }
 
+    private fun chooseContactForReadOnlyPreview() {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            pendingContactPreview = true
+            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_READ_CONTACTS)
+            return
+        }
+        launchContactPicker()
+    }
+
+    private fun launchContactPicker() {
+        pendingContactPreview = false
+        try {
+            startActivityForResult(
+                Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI),
+                REQUEST_PICK_CONTACT
+            )
+        } catch (e: Exception) {
+            status.text = "Impossible d’ouvrir le sélecteur de contacts : ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun previewSelectedContact(contactUri: Uri) {
+        val contactId = contactUri.lastPathSegment ?: run {
+            status.text = "Le sélecteur n’a pas fourni d’identifiant de contact."
+            return
+        }
+        status.text = "Lecture locale du contact sélectionné…"
+        Thread({
+            val preview = try {
+                val name = contentResolver.query(
+                    contactUri,
+                    arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }.orEmpty()
+                val phones = readContactValues(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER,
+                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                    contactId
+                )
+                val emails = readContactValues(
+                    ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                    ContactsContract.CommonDataKinds.Email.ADDRESS,
+                    ContactsContract.CommonDataKinds.Email.CONTACT_ID,
+                    contactId
+                )
+                buildString {
+                    appendLine("Nom : ${name.ifBlank { "(non renseigné)" }}")
+                    appendLine("Téléphones : ${phones.size}")
+                    phones.forEach { appendLine("• $it") }
+                    appendLine("Adresses e-mail : ${emails.size}")
+                    emails.forEach { appendLine("• $it") }
+                    appendLine()
+                    append("Aucune donnée n’a été enregistrée ou synchronisée.")
+                }
+            } catch (e: Exception) {
+                "Lecture impossible : ${e.message ?: e.javaClass.simpleName}"
+            }
+            runOnUiThread {
+                AlertDialog.Builder(this)
+                    .setTitle("Aperçu local — lecture seule")
+                    .setMessage(preview)
+                    .setPositiveButton("Fermer", null)
+                    .show()
+                status.text = "Aperçu fermé. Aucune donnée de contact n’a été enregistrée."
+            }
+        }, "pimsync-contact-preview").start()
+    }
+
+    private fun readContactValues(uri: Uri, column: String, idColumn: String, contactId: String): List<String> =
+        contentResolver.query(uri, arrayOf(column), "$idColumn = ?", arrayOf(contactId), null)?.use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) cursor.getString(0)?.takeIf { it.isNotBlank() }?.let(::add)
+            }
+        } ?: emptyList()
+
     @Deprecated("The result is used to continue the user-requested read-only contacts check")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != REQUEST_READ_CONTACTS) return
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            inspectContactsReadOnly()
+            if (pendingContactPreview) launchContactPicker() else inspectContactsReadOnly()
         } else {
+            pendingContactPreview = false
             status.text = "Autorisation refusée. Aucun contact n’a été lu. Tu peux continuer les autres essais."
         }
     }
@@ -387,6 +485,10 @@ class MainActivity : Activity() {
     @Deprecated("The result is used to persist the SAF directory permission")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_PICK_CONTACT) {
+            if (resultCode == RESULT_OK) data?.data?.let(::previewSelectedContact)
+            return
+        }
         if (requestCode != REQUEST_TREE || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         val flags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -530,6 +632,9 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_TREE = 42
         private const val REQUEST_READ_CONTACTS = 43
+        private const val REQUEST_PICK_CONTACT = 44
+        private const val GUIDE_CONTACTS_STEP = 9
+        private const val GUIDE_CONTACT_PREVIEW_STEP = 10
         private const val KEY_SESSION_CODE = "guided_session_code"
         private const val KEY_GUIDE_STEP = "guided_step"
         private const val KEY_GUIDE_RESULTS = "guided_results"
