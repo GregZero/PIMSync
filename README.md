@@ -8,7 +8,7 @@ Le workflow **Build Android prototype** se lance à chaque envoi de code et dema
 
 L’étude DAVx⁵ et le choix d’architecture proposé sont documentés dans [docs/etude-davx5-architecture.md](docs/etude-davx5-architecture.md).
 
-Le prototype comprend des contrôles facultatifs du fournisseur Contacts Android : après autorisation explicite, il peut compter les contacts ou afficher un aperçu local du contact choisi. L’aperçu n’est pas enregistré, copié dans le dossier PIMSync ni partagé. Aucun contact n’est modifié.
+Le prototype comprend des contrôles facultatifs du fournisseur Contacts Android : après autorisation explicite, il peut compter les contacts ou afficher un aperçu local du contact choisi. Un essai séparé permet d’exporter une fiche choisie en vCard dans le journal PIMSync, après confirmation indiquant que les nom, téléphones et e-mails seront répliqués par Syncthing. Le carnet Android n’est jamais modifié. Sur l’autre appareil, « Afficher les contacts exportés dans PIMSync » vérifie la lecture du journal partagé ; l’application ne les ajoute pas encore au carnet système.
 
 Les tests guidés permettent de reprendre directement à l’étape « écran et contacts » sans créer de session ni rejouer les essais de synchronisation. Les résultats précédents sont conservés dans le compte-rendu et chaque nouvelle validation indique la version de l’application.
 

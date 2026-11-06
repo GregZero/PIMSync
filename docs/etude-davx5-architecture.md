@@ -29,11 +29,11 @@ Je ne recommande pas un fork DAVx⁵ à ce stade : la synchronisation de PIMSync
 ## Suite proposée
 
 1. Finir et publier le correctif de mise en page Android en cours, avec les tests guidés désormais validés sur deux appareils.
-2. Définir un format vCard et un adaptateur de contacts isolé derrière une interface ; commencer par la lecture et l’export d’un contact d’essai PIMSync, sans modifier les contacts existants.
-3. Après validation sur les téléphones, préparer une écriture limitée à un contact d’essai explicitement créé pour PIMSync, puis seulement plus tard étudier la synchronisation des contacts existants.
+2. Définir un format vCard et un adaptateur de contacts isolé derrière une interface ; commencer par la lecture et l’export confirmé d’un contact choisi dans le journal PIMSync, sans modifier les contacts Android.
+3. Après validation sur les téléphones, étudier la création d’un contact d’essai dans le compte Contacts Android propre à PIMSync, puis seulement plus tard étudier la synchronisation des contacts existants.
 4. Étudier ensuite les événements iCalendar et le cas particulier des tâches, qui dépend du fournisseur installé.
 
-Avant tout accès en écriture aux contacts Android, l’application devra expliquer la portée de l’autorisation et proposer un mode d’essai séparé. Le prototype actuel ne lit ni ne modifie ces données.
+Avant tout accès en écriture aux contacts Android, l’application devra expliquer la portée de l’autorisation et proposer un mode d’essai séparé. Le premier export vCard actuel écrit uniquement dans le journal PIMSync après confirmation ; il ne crée ni ne modifie de fiche dans le fournisseur Contacts Android.
 
 ## Sources
 

@@ -34,6 +34,24 @@ class PimSyncEngine(
         return ObjectInspection(objectId, resolve(history), read.invalidRecords, read.ignoredRecords)
     }
 
+    fun inspectAll(): List<ObjectInspection> {
+        val read = store.readAll()
+        val unique = uniqueOperations(read.operations)
+        return unique.asSequence()
+            .map { it.objectId }
+            .distinct()
+            .sorted()
+            .map { objectId ->
+                ObjectInspection(
+                    objectId = objectId,
+                    state = resolve(unique.filter { it.objectId == objectId }),
+                    invalidRecords = read.invalidRecords,
+                    ignoredRecords = read.ignoredRecords
+                )
+            }
+            .toList()
+    }
+
     fun upsert(objectId: String, payload: String): Operation = appendNew(objectId, OperationKind.UPSERT, payload)
 
     fun delete(objectId: String): Operation = appendNew(objectId, OperationKind.DELETE, null)
