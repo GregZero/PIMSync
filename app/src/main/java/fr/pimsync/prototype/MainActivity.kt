@@ -1,11 +1,18 @@
 package fr.pimsync.prototype
 
 import android.app.Activity
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.provider.ContactsContract
+import android.view.WindowInsets
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -43,9 +50,30 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this)
         scroll.addView(content)
         setContentView(scroll)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        if (Build.VERSION.SDK_INT >= 35) {
+            scroll.setOnApplyWindowInsetsListener { view, insets ->
+                val safeAreas = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                val keyboard = insets.getInsets(WindowInsets.Type.ime())
+                view.setPadding(
+                    safeAreas.left,
+                    safeAreas.top,
+                    safeAreas.right,
+                    maxOf(safeAreas.bottom, keyboard.bottom)
+                )
+                val focusedEditor = currentFocus as? EditText
+                if (insets.isVisible(WindowInsets.Type.ime()) && focusedEditor != null) {
+                    view.post { scrollFieldIntoView(scroll, focusedEditor) }
+                }
+                insets
+            }
+            scroll.requestApplyInsets()
+        }
 
         content.addView(TextView(this).apply {
-            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes opérations ci-dessous portent sur une note fictive. Aucun contact, agenda ou tâche du téléphone n’est lu ni modifié."
+            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes notes de test sont fictives. Le bouton Contacts effectue séparément un comptage en lecture seule, uniquement après autorisation. Aucun contact, agenda ou tâche n’est modifié."
             textSize = 18f
         })
         addGuide(content)
@@ -57,6 +85,11 @@ class MainActivity : Activity() {
         content.addView(deviceId, matchWidth())
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
+        content.addView(TextView(this).apply {
+            text = "Contacts Android — vérification en lecture seule. L’application affichera uniquement un nombre. Aucun contact ne sera copié, modifié ou synchronisé."
+            textSize = 16f
+        })
+        addButton(content, "Compter les contacts (lecture seule)") { inspectContactsReadOnly() }
         addButton(content, "Tester créer / lire / modifier / renommer / supprimer") { runFileTest() }
         content.addView(TextView(this).apply {
             text = "Note fictive partagée par les appareils"
@@ -82,8 +115,29 @@ class MainActivity : Activity() {
             text = "Aucun dossier sélectionné."
         }
         content.addView(status, matchWidth())
+        listOf(sessionCode, deviceId, demoNoteText, resultComment).forEach { field ->
+            val keepVisible = {
+                scroll.postDelayed({ scrollFieldIntoView(scroll, field) }, 300L)
+            }
+            field.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) keepVisible() }
+            field.setOnClickListener { keepVisible() }
+        }
         updateStatus()
         renderGuide()
+    }
+
+    private fun scrollFieldIntoView(scroll: ScrollView, field: EditText) {
+        if (!field.isShown || scroll.height == 0) return
+        val fieldBounds = Rect(0, 0, field.width, field.height)
+        scroll.offsetDescendantRectToMyCoords(field, fieldBounds)
+        val visibleTop = scroll.paddingTop + 16
+        val visibleBottom = scroll.height - scroll.paddingBottom - 24
+        when {
+            fieldBounds.bottom > visibleBottom ->
+                scroll.smoothScrollBy(0, fieldBounds.bottom - visibleBottom)
+            fieldBounds.top < visibleTop ->
+                scroll.smoothScrollBy(0, fieldBounds.top - visibleTop)
+        }
     }
 
     private fun addGuide(content: LinearLayout) {
@@ -180,7 +234,12 @@ class MainActivity : Activity() {
             "Le statut attendu est CONFLIT avec une suppression et le texte MODIF-B-<code> tous deux visibles."
         ),
         GuideStep(
-            "9 — Envoyer les résultats",
+            "9 — Contrôle facultatif des contacts en lecture seule",
+            "Si tu souhaites tester cette fonction, touche Compter les contacts (lecture seule). Android demandera l’autorisation READ_CONTACTS. Tu peux l’accorder ou la refuser ; aucun contact ne sera copié dans le dossier PIMSync.",
+            "Si tu accordes l’autorisation, l’application affiche uniquement le nombre de contacts détectés. Si tu refuses, aucun contact n’est lu et les autres essais continuent normalement."
+        ),
+        GuideStep(
+            "10 — Envoyer les résultats",
             "Sur chaque téléphone, touchez Copier mon compte-rendu à coller dans le chat. Revenez dans cette conversation et collez les deux comptes-rendus. Vous pouvez ajouter un commentaire dans le champ prévu plus bas.",
             "Le compte-rendu inclut la version de l’application, le code de session, l’identifiant de l’appareil, l’état courant et les étapes validées ou signalées."
         )
@@ -289,6 +348,40 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
         selectedTree?.let { intent.putExtra("android.provider.extra.INITIAL_URI", it) }
         startActivityForResult(intent, REQUEST_TREE)
+    }
+
+    private fun inspectContactsReadOnly() {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_READ_CONTACTS)
+            return
+        }
+        status.text = "Comptage des contacts en lecture seule…"
+        Thread({
+            val result = try {
+                val count = contentResolver.query(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(ContactsContract.Contacts._ID),
+                    null,
+                    null,
+                    null
+                )?.use { it.count } ?: error("Le fournisseur Contacts n’a pas répondu")
+                "Lecture seule réussie : $count contacts détectés. Aucun contenu n’a été copié, modifié ou synchronisé."
+            } catch (e: Exception) {
+                "Lecture des contacts impossible : ${e.message ?: e.javaClass.simpleName}"
+            }
+            runOnUiThread { status.text = result }
+        }, "pimsync-read-only-contacts").start()
+    }
+
+    @Deprecated("The result is used to continue the user-requested read-only contacts check")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_READ_CONTACTS) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            inspectContactsReadOnly()
+        } else {
+            status.text = "Autorisation refusée. Aucun contact n’a été lu. Tu peux continuer les autres essais."
+        }
     }
 
     @Deprecated("The result is used to persist the SAF directory permission")
@@ -436,6 +529,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_TREE = 42
+        private const val REQUEST_READ_CONTACTS = 43
         private const val KEY_SESSION_CODE = "guided_session_code"
         private const val KEY_GUIDE_STEP = "guided_step"
         private const val KEY_GUIDE_RESULTS = "guided_results"

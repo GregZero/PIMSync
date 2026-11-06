@@ -6,6 +6,10 @@ Cette application utilise le dossier local sélectionné avec SAF. Elle ne commu
 
 Le workflow **Build Android prototype** se lance à chaque envoi de code et demande de fusion. Il exécute les tests du moteur, compile l’APK Android et publie l’artefact `pimsync-prototype-<numéro>` pendant 14 jours. Le numéro de compilation GitHub apparaît dans le nom de l’artefact et dans la version Android (par exemple `0.1.42`), ce qui permet d’identifier l’APK installée.
 
+L’étude DAVx⁵ et le choix d’architecture proposé sont documentés dans [docs/etude-davx5-architecture.md](docs/etude-davx5-architecture.md).
+
+Le prototype comprend aussi un contrôle facultatif du fournisseur Contacts Android : après autorisation explicite, il compte les contacts et affiche uniquement ce nombre. Il ne lit pas les fiches, ne les copie pas dans le dossier PIMSync et ne modifie aucun contact.
+
 ## Essai sur Android
 
 1. Téléchargez l’artefact depuis une exécution réussie dans GitHub Actions, décompressez-le, puis installez l’APK.
