@@ -29,7 +29,7 @@ class PimSyncAuthenticator(context: Context) : AbstractAccountAuthenticator(cont
         options: Bundle?
     ): Bundle {
         val account = PimSyncAccount.account()
-        AccountManager(appContext).addAccountExplicitly(account, null, null)
+        AccountManager.get(appContext).addAccountExplicitly(account, null, null)
         return Bundle().apply {
             putString(AccountManager.KEY_ACCOUNT_NAME, account.name)
             putString(AccountManager.KEY_ACCOUNT_TYPE, account.type)

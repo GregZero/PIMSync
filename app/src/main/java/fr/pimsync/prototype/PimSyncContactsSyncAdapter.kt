@@ -263,8 +263,8 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
 
     private fun syncAdapterUri(uri: Uri): Uri = uri.buildUpon()
         .appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true")
-        .appendQueryParameter(ContactsContract.SyncColumns.ACCOUNT_NAME, PimSyncAccount.ACCOUNT_NAME)
-        .appendQueryParameter(ContactsContract.SyncColumns.ACCOUNT_TYPE, PimSyncAccount.ACCOUNT_TYPE)
+        .appendQueryParameter(ContactsContract.RawContacts.ACCOUNT_NAME, PimSyncAccount.ACCOUNT_NAME)
+        .appendQueryParameter(ContactsContract.RawContacts.ACCOUNT_TYPE, PimSyncAccount.ACCOUNT_TYPE)
         .build()
 
     private data class RawContactRow(
