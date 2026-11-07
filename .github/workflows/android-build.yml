@@ -32,6 +32,12 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
 
+      - name: Conserver la clé de signature debug entre les compilations
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: pimsync-debug-signing-${{ runner.os }}-v1
+
       - name: Tester le moteur et compiler l’APK
         run: gradle --no-daemon :engine:test :app:assembleDebug
 
