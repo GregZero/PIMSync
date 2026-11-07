@@ -47,10 +47,49 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             uploadAndroidChanges(account, engine)
             downloadPimSyncContacts(account, engine)
             ensureUngroupedContactsVisible(account)
+            val journalCount = engine.inspectAll().count {
+                it.objectId.startsWith(TEST_CONTACT_PREFIX) && it.state is ObjectState.Current
+            }
+            val (contactCount, readOnlyCount) = countAccountContacts(account)
+            saveSyncResult(
+                "Réussite — journal : $journalCount contact(s) actif(s) de test ; Contacts Android : " +
+                    "$contactCount fiche(s), dont $readOnlyCount en lecture seule."
+            )
         } catch (error: Exception) {
             Log.e(TAG, "Synchronisation du compte Contacts PIMSync impossible", error)
+            saveSyncResult("Échec — ${error.message ?: error.javaClass.simpleName}")
             syncResult.stats.numIoExceptions++
         }
+    }
+
+    private fun countAccountContacts(account: Account): Pair<Int, Int> {
+        var total = 0
+        var readOnly = 0
+        context.contentResolver.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(
+                ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY,
+                ContactsContract.RawContacts.DELETED
+            ),
+            "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND ${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+            arrayOf(account.name, account.type),
+            null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getInt(1) == 0) {
+                    total++
+                    if (cursor.getInt(0) != 0) readOnly++
+                }
+            }
+        }
+        return total to readOnly
+    }
+
+    private fun saveSyncResult(result: String) {
+        context.getSharedPreferences("pimsync-prototype", Context.MODE_PRIVATE).edit()
+            .putString(PimSyncAccount.PREFERENCE_LAST_CONTACTS_SYNC_RESULT, result)
+            .putLong(PimSyncAccount.PREFERENCE_LAST_CONTACTS_SYNC_TIME, System.currentTimeMillis())
+            .commit()
     }
 
     private fun uploadAndroidChanges(account: Account, engine: PimSyncEngine) {

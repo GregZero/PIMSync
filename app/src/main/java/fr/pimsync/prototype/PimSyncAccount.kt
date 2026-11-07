@@ -13,6 +13,8 @@ object PimSyncAccount {
     const val ACCOUNT_TYPE = "fr.pimsync.prototype.contacts"
     const val AUTHORITY = ContactsContract.AUTHORITY
     const val PREFERENCE_ACCOUNT_ENABLED = "contacts_account_enabled"
+    const val PREFERENCE_LAST_CONTACTS_SYNC_RESULT = "contacts_sync_last_result"
+    const val PREFERENCE_LAST_CONTACTS_SYNC_TIME = "contacts_sync_last_time"
 
     fun account() = Account(ACCOUNT_NAME, ACCOUNT_TYPE)
 }

@@ -27,6 +27,8 @@ import fr.pimsync.engine.ObjectInspection
 import fr.pimsync.engine.ObjectState
 import fr.pimsync.engine.PimSyncEngine
 import java.util.UUID
+import java.util.Date
+import java.text.DateFormat
 
 class MainActivity : Activity() {
     private val preferences by lazy { getSharedPreferences("pimsync-prototype", MODE_PRIVATE) }
@@ -94,6 +96,7 @@ class MainActivity : Activity() {
             textSize = 16f
         })
         addButton(content, "Activer le compte de contacts PIMSync et synchroniser") { enablePimSyncAccount() }
+        addButton(content, "Voir le résultat du dernier sync PIMSync") { showContactsSyncResult() }
         addButton(content, "Créer un contact fictif dans le journal PIMSync") { createPimSyncTestContact() }
         addButton(content, "Compter les contacts (lecture seule)") { inspectContactsReadOnly() }
         addButton(content, "Choisir un contact et afficher l’aperçu (lecture seule)") { chooseContactForReadOnlyPreview() }
@@ -443,9 +446,19 @@ class MainActivity : Activity() {
                 putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
                 putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
             })
-            status.text = "Compte PIMSync activé sur $id. Les fiches fictives du journal seront synchronisées vers Contacts."
+            status.text = "Compte PIMSync activé sur $id. Demande de synchronisation envoyée ; consulte le résultat du dernier sync après quelques secondes."
         } catch (e: Exception) {
             status.text = "Activation du compte Contacts PIMSync impossible : ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun showContactsSyncResult() {
+        val result = preferences.getString(PimSyncAccount.PREFERENCE_LAST_CONTACTS_SYNC_RESULT, null)
+        val time = preferences.getLong(PimSyncAccount.PREFERENCE_LAST_CONTACTS_SYNC_TIME, 0L)
+        status.text = if (result == null || time == 0L) {
+            "Aucun résultat de synchronisation Contacts enregistré sur cet appareil. Active le compte et réessaie après quelques secondes."
+        } else {
+            "Dernier sync Contacts (${DateFormat.getDateTimeInstance().format(Date(time))}) : $result"
         }
     }
 
