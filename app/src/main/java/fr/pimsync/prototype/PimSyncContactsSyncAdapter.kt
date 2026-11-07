@@ -175,7 +175,9 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withValue(ContactsContract.Data.MIMETYPE, mimeType)
                 .withValue(column, value)
             if (type != null) builder.withValue(ContactsContract.Data.DATA2, type)
-            if (rawContactId == null) builder.withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, rawIndex)
+            if (rawContactId == null || recreateReadOnly) {
+                builder.withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, rawIndex)
+            }
             else builder.withValue(ContactsContract.Data.RAW_CONTACT_ID, rawContactId)
             operations += builder.build()
         }
