@@ -24,6 +24,7 @@ android {
         applicationId = "fr.pimsync.prototype"
         minSdk = 23
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // GitHub Actions run numbers make each published build uniquely identifiable.
         // Local builds keep a usable development version when this variable is absent.
         val githubRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
@@ -36,4 +37,8 @@ android {
 dependencies {
     implementation(project(":engine"))
     implementation("androidx.documentfile:documentfile:1.0.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

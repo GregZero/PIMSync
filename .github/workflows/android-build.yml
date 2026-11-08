@@ -41,6 +41,15 @@ jobs:
       - name: Tester le moteur et compiler l’APK
         run: gradle --no-daemon :engine:test :app:assembleDebug
 
+      - name: Vérifier le compte Contacts dans un émulateur Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: gradle --no-daemon :app:connectedDebugAndroidTest
+
       - name: Publier l’APK comme artefact téléchargeable
         uses: actions/upload-artifact@v6
         with:
