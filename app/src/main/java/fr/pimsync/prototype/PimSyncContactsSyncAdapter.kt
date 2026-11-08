@@ -150,7 +150,6 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                         replaceRawContact(
                             account = account,
                             rawContactId = local?.id,
-                            recreateReadOnly = local?.readOnly == true,
                             objectId = inspection.objectId,
                             card = VCardCodec.decode(state.operation.payload.orEmpty()),
                             version = state.operation.version
@@ -172,7 +171,6 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
     private fun replaceRawContact(
         account: Account,
         rawContactId: Long?,
-        recreateReadOnly: Boolean,
         objectId: String,
         card: PimContactCard,
         version: VersionVector
@@ -180,13 +178,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         val operations = arrayListOf<ContentProviderOperation>()
         val rawUri = syncAdapterUri(ContactsContract.RawContacts.CONTENT_URI)
         val dataUri = syncAdapterUri(ContactsContract.Data.CONTENT_URI)
-        val rawIndex = if (rawContactId == null || recreateReadOnly) {
-            if (rawContactId != null) {
-                operations += ContentProviderOperation.newDelete(rawUri)
-                    .withSelection("${ContactsContract.RawContacts._ID} = ?", arrayOf(rawContactId.toString()))
-                    .build()
-            }
-            val insertIndex = operations.size
+        val rawIndex = if (rawContactId == null) {
             operations += ContentProviderOperation.newInsert(rawUri)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
@@ -195,7 +187,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 0)
                 .withValue(ContactsContract.RawContacts.DIRTY, 0)
                 .build()
-            insertIndex
+            0
         } else {
             operations += ContentProviderOperation.newDelete(dataUri)
                 .withSelection("${ContactsContract.Data.RAW_CONTACT_ID} = ?", arrayOf(rawContactId.toString()))
@@ -204,6 +196,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withSelection("${ContactsContract.RawContacts._ID} = ?", arrayOf(rawContactId.toString()))
                 .withValue(ContactsContract.RawContacts.SOURCE_ID, objectId)
                 .withValue(ContactsContract.RawContacts.SYNC1, encodeVersion(version))
+                .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 0)
                 .withValue(ContactsContract.RawContacts.DIRTY, 0)
                 .build()
             -1
@@ -214,7 +207,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withValue(ContactsContract.Data.MIMETYPE, mimeType)
                 .withValue(column, value)
             if (type != null) builder.withValue(ContactsContract.Data.DATA2, type)
-            if (rawContactId == null || recreateReadOnly) {
+            if (rawContactId == null) {
                 builder.withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, rawIndex)
             }
             else builder.withValue(ContactsContract.Data.RAW_CONTACT_ID, rawContactId)

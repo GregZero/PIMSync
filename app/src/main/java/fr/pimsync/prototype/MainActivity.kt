@@ -79,10 +79,9 @@ class MainActivity : Activity() {
         }
 
         content.addView(TextView(this).apply {
-            text = "PIMSync — prototype SAF et moteur — version ${BuildConfig.VERSION_NAME}\n\nLes contacts personnels ne sont pas synchronisés par le compte de test PIMSync. Seules les fiches placées dans le compte PIMSync dédié sont échangées."
+            text = "PIMSync — contacts de test — version ${BuildConfig.VERSION_NAME}\n\nSeuls les contacts du compte PIMSync sont concernés. Les comptes Google, SIM et appareil restent hors périmètre."
             textSize = 18f
         })
-        addGuide(content)
         deviceId = EditText(this).apply {
             hint = "Identifiant de cet appareil (ex. telephone-a)"
             setText(preferences.getString("device_id", "telephone-a"))
@@ -91,42 +90,19 @@ class MainActivity : Activity() {
         content.addView(deviceId, matchWidth())
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
+        addButton(content, "Activer le compte PIMSync et synchroniser") { enablePimSyncAccount() }
+        addButton(content, "Créer un contact fictif dans le journal partagé") { createPimSyncTestContact() }
+        addButton(content, "Afficher le résultat du dernier sync") { showContactsSyncResult() }
         content.addView(TextView(this).apply {
-            text = "Compte Contacts Android PIMSync — synchronisation limitée aux fiches de test de ce compte. Les comptes Google, SIM et appareil restent hors périmètre."
+            text = "Essai de création depuis Contacts\n1. Ouvre l’application Contacts et crée un contact fictif.\n2. Dans « Enregistrer dans », choisis PIMSync.\n3. Enregistre, puis reviens ici et lance la synchronisation.\n4. Vérifie que le contact apparaît sur l’autre téléphone."
             textSize = 16f
         })
-        addButton(content, "Activer le compte de contacts PIMSync et synchroniser") { enablePimSyncAccount() }
-        addButton(content, "Voir le résultat du dernier sync PIMSync") { showContactsSyncResult() }
-        addButton(content, "Créer un contact fictif dans le journal PIMSync") { createPimSyncTestContact() }
-        addButton(content, "Compter les contacts (lecture seule)") { inspectContactsReadOnly() }
-        addButton(content, "Choisir un contact et afficher l’aperçu (lecture seule)") { chooseContactForReadOnlyPreview() }
-        addButton(content, "Afficher les contacts du journal PIMSync") { showSharedContacts() }
-        addButton(content, "Tester créer / lire / modifier / renommer / supprimer") { runFileTest() }
-        content.addView(TextView(this).apply {
-            text = "Note fictive partagée par les appareils"
-            textSize = 16f
-        })
-        demoNoteText = EditText(this).apply {
-            hint = "Exemple : rendez-vous fictif mardi à 10 h"
-            setSingleLine(false)
-            minLines = 2
-        }
-        content.addView(demoNoteText, matchWidth())
-        resultComment = EditText(this).apply {
-            hint = "Commentaire facultatif pour le compte-rendu"
-            setSingleLine(false)
-            minLines = 2
-        }
-        content.addView(resultComment, matchWidth())
-        addButton(content, "Enregistrer cette note de test") { writeDemoNote() }
-        addButton(content, "Supprimer la note de test (garder un marqueur)") { deleteDemoNote() }
-        addButton(content, "Actualiser l’état et les conflits") { refreshDemoNote() }
         status = TextView(this).apply {
             textSize = 15f
             text = "Aucun dossier sélectionné."
         }
         content.addView(status, matchWidth())
-        listOf(sessionCode, deviceId, demoNoteText, resultComment).forEach { field ->
+        listOf(deviceId).forEach { field ->
             val keepVisible = {
                 scroll.postDelayed({ scrollFieldIntoView(scroll, field) }, 300L)
             }
@@ -134,7 +110,6 @@ class MainActivity : Activity() {
             field.setOnClickListener { keepVisible() }
         }
         updateStatus()
-        renderGuide()
     }
 
     private fun scrollFieldIntoView(scroll: ScrollView, field: EditText) {
