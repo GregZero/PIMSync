@@ -10,6 +10,7 @@
             supportsPhoneticFamilyName="true"
             supportsPhoneticMiddleName="true"
             supportsPhoneticGivenName="true" />
+        <DataKind kind="photo" maxOccurs="1" />
         <DataKind kind="phone">
             <Type type="mobile" />
             <Type type="home" />
