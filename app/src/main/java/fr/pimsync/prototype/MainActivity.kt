@@ -93,6 +93,7 @@ class MainActivity : Activity() {
         addButton(content, "Activer le compte PIMSync et synchroniser") { enablePimSyncAccount() }
         addButton(content, "Créer un contact fictif dans le journal partagé") { createPimSyncTestContact() }
         addButton(content, "Afficher le résultat du dernier sync") { showContactsSyncResult() }
+        addButton(content, "Vérifier si Android autorise l’écriture dans PIMSync") { diagnoseWritableAccount() }
         content.addView(TextView(this).apply {
             text = "Essai de création depuis Contacts\n1. Ouvre l’application Contacts et crée un contact fictif.\n2. Dans « Enregistrer dans », choisis PIMSync.\n3. Enregistre, puis reviens ici et lance la synchronisation.\n4. Vérifie que le contact apparaît sur l’autre téléphone."
             textSize = 16f
@@ -434,6 +435,35 @@ class MainActivity : Activity() {
             "Aucun résultat de synchronisation Contacts enregistré sur cet appareil. Active le compte et réessaie après quelques secondes."
         } else {
             "Dernier sync Contacts (${DateFormat.getDateTimeInstance().format(Date(time))}) : $result"
+        }
+    }
+
+    private fun diagnoseWritableAccount() {
+        val account = PimSyncAccount.account()
+        val authenticator = AccountManager.get(this).authenticatorTypes
+            .any { it.type == PimSyncAccount.ACCOUNT_TYPE }
+        val registeredAccount = AccountManager.get(this).getAccountsByType(PimSyncAccount.ACCOUNT_TYPE)
+            .any { it.name == account.name }
+        val adapter = ContentResolver.getSyncAdapterTypes().firstOrNull {
+            it.accountType == PimSyncAccount.ACCOUNT_TYPE && it.authority == PimSyncAccount.AUTHORITY
+        }
+        val syncable = ContentResolver.getIsSyncable(account, PimSyncAccount.AUTHORITY)
+        val canRead = checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        val canWrite = checkSelfPermission(Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        status.text = buildString {
+            appendLine("Diagnostic du compte Contacts PIMSync")
+            appendLine("Compte Android présent : ${if (registeredAccount) "oui" else "non"}")
+            appendLine("Authentificateur déclaré : ${if (authenticator) "oui" else "non"}")
+            appendLine("Adaptateur Contacts déclaré : ${if (adapter != null) "oui" else "non"}")
+            appendLine("Android le propose pour l’écriture : ${if (adapter?.supportsUploading() == true) "oui" else "non"}")
+            appendLine("Compte synchronisable : $syncable")
+            appendLine("Compte visible dans les réglages : ${adapter?.isUserVisible() == true}")
+            appendLine("Autorisations Contacts : lecture ${if (canRead) "oui" else "non"}, écriture ${if (canWrite) "oui" else "non"}")
+            if (adapter == null || !adapter.supportsUploading() || syncable <= 0) {
+                append("Android ne déclare pas actuellement ce compte comme destination d’écriture.")
+            } else {
+                append("Android déclare le compte inscriptible. Si Contacts ne le propose pas, le sélecteur de cette application masque ou filtre les comptes tiers.")
+            }
         }
     }
 
