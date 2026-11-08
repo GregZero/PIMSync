@@ -50,10 +50,10 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             val journalCount = engine.inspectAll().count {
                 it.objectId.startsWith(TEST_CONTACT_PREFIX) && it.state is ObjectState.Current
             }
-            val (contactCount, readOnlyCount) = countAccountContacts(account)
+            val contactCount = countAccountContacts(account)
             saveSyncResult(
                 "Réussite — journal : $journalCount contact(s) actif(s) de test ; Contacts Android : " +
-                    "$contactCount fiche(s), dont $readOnlyCount en lecture seule."
+                    "$contactCount fiche(s) dans le compte PIMSync."
             )
         } catch (error: Exception) {
             Log.e(TAG, "Synchronisation du compte Contacts PIMSync impossible", error)
@@ -62,27 +62,20 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         }
     }
 
-    private fun countAccountContacts(account: Account): Pair<Int, Int> {
+    private fun countAccountContacts(account: Account): Int {
         var total = 0
-        var readOnly = 0
         context.contentResolver.query(
             ContactsContract.RawContacts.CONTENT_URI,
-            arrayOf(
-                ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY,
-                ContactsContract.RawContacts.DELETED
-            ),
+            arrayOf(ContactsContract.RawContacts.DELETED),
             "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND ${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
             arrayOf(account.name, account.type),
             null
         )?.use { cursor ->
             while (cursor.moveToNext()) {
-                if (cursor.getInt(1) == 0) {
-                    total++
-                    if (cursor.getInt(0) != 0) readOnly++
-                }
+                if (cursor.getInt(0) == 0) total++
             }
         }
-        return total to readOnly
+        return total
     }
 
     private fun saveSyncResult(result: String) {
@@ -101,8 +94,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 ContactsContract.RawContacts.SOURCE_ID,
                 ContactsContract.RawContacts.DIRTY,
                 ContactsContract.RawContacts.DELETED,
-                ContactsContract.RawContacts.SYNC1,
-                ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY
+                ContactsContract.RawContacts.SYNC1
             ),
             "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND ${ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND ${ContactsContract.RawContacts.DIRTY} = 1",
             arrayOf(account.name, account.type),
@@ -144,9 +136,9 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             when (val state = inspection.state) {
                 is ObjectState.Current -> {
                     val local = existing
-                    if (local?.dirty == true && !local.readOnly) continue
+                    if (local?.dirty == true) continue
                     val savedVersion = local?.syncVersion?.let(::decodeVersion)
-                    if (local == null || local.readOnly || savedVersion != state.operation.version) {
+                    if (local == null || savedVersion != state.operation.version) {
                         replaceRawContact(
                             account = account,
                             rawContactId = local?.id,
@@ -184,7 +176,6 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
                 .withValue(ContactsContract.RawContacts.SOURCE_ID, objectId)
                 .withValue(ContactsContract.RawContacts.SYNC1, encodeVersion(version))
-                .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 0)
                 .withValue(ContactsContract.RawContacts.DIRTY, 0)
                 .build()
             0
@@ -196,7 +187,6 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 .withSelection("${ContactsContract.RawContacts._ID} = ?", arrayOf(rawContactId.toString()))
                 .withValue(ContactsContract.RawContacts.SOURCE_ID, objectId)
                 .withValue(ContactsContract.RawContacts.SYNC1, encodeVersion(version))
-                .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 0)
                 .withValue(ContactsContract.RawContacts.DIRTY, 0)
                 .build()
             -1
@@ -254,8 +244,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 ContactsContract.RawContacts.SOURCE_ID,
                 ContactsContract.RawContacts.DIRTY,
                 ContactsContract.RawContacts.DELETED,
-                ContactsContract.RawContacts.SYNC1,
-                ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY
+                ContactsContract.RawContacts.SYNC1
             ),
             "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND ${ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND ${ContactsContract.RawContacts.SOURCE_ID} = ?",
             arrayOf(account.name, account.type, objectId),
@@ -293,8 +282,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         sourceId = getString(1),
         dirty = getInt(2) != 0,
         deleted = getInt(3) != 0,
-        syncVersion = getString(4),
-        readOnly = getInt(5) != 0
+        syncVersion = getString(4)
     )
 
     private fun decodeVersion(value: String?): VersionVector {
@@ -318,8 +306,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         val sourceId: String?,
         val dirty: Boolean,
         val deleted: Boolean,
-        val syncVersion: String?,
-        val readOnly: Boolean
+        val syncVersion: String?
     )
 
     companion object {
