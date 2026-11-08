@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContactsAccountType xmlns:android="http://schemas.android.com/apk/res/android">
+    <EditSchema>
+        <DataKind kind="name"
+            maxOccurs="1"
+            supportsDisplayName="true"
+            supportsPrefix="true"
+            supportsMiddleName="true"
+            supportsSuffix="true"
+            supportsPhoneticFamilyName="true"
+            supportsPhoneticMiddleName="true"
+            supportsPhoneticGivenName="true" />
+        <DataKind kind="phone">
+            <Type type="mobile" />
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+            <Type type="custom" />
+        </DataKind>
+        <DataKind kind="email">
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+            <Type type="mobile" />
+            <Type type="custom" />
+        </DataKind>
+    </EditSchema>
+</ContactsAccountType>
