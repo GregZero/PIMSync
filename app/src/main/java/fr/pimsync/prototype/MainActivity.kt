@@ -94,8 +94,9 @@ class MainActivity : Activity() {
         addButton(content, "Créer un contact fictif dans le journal partagé") { createPimSyncTestContact() }
         addButton(content, "Afficher le résultat du dernier sync") { showContactsSyncResult() }
         addButton(content, "Vérifier si Android autorise l’écriture dans PIMSync") { diagnoseWritableAccount() }
+        addButton(content, "Créer un contact dans Contacts en l’enregistrant sur PIMSync") { openPimSyncContactEditor() }
         content.addView(TextView(this).apply {
-            text = "Essai de création depuis Contacts\n1. Ouvre l’application Contacts et crée un contact fictif.\n2. Dans « Enregistrer dans », choisis PIMSync.\n3. Enregistre, puis reviens ici et lance la synchronisation.\n4. Vérifie que le contact apparaît sur l’autre téléphone."
+            text = "Le bouton de création ouvre Contacts avec le compte PIMSync présélectionné. Après l’enregistrement, reviens ici et touche « Activer le compte PIMSync et synchroniser », puis vérifie l’arrivée sur l’autre téléphone."
             textSize = 16f
         })
         status = TextView(this).apply {
@@ -468,6 +469,25 @@ class MainActivity : Activity() {
             }
         } catch (error: Exception) {
             status.text = "Diagnostic impossible sans fermer PIMSync : ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
+
+    private fun openPimSyncContactEditor() {
+        val account = PimSyncAccount.account()
+        val exists = AccountManager.get(this).getAccountsByType(PimSyncAccount.ACCOUNT_TYPE)
+            .any { it.name == account.name }
+        if (!exists) {
+            status.text = "Compte PIMSync absent. Touche d’abord « Activer le compte PIMSync et synchroniser »."
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_INSERT).apply {
+                setType(ContactsContract.Contacts.CONTENT_TYPE)
+                putExtra(ContactsContract.Intents.Insert.EXTRA_ACCOUNT, account)
+            }
+            startActivity(intent)
+        } catch (error: Exception) {
+            status.text = "Impossible d’ouvrir Contacts avec PIMSync présélectionné : ${error.message ?: error.javaClass.simpleName}"
         }
     }
 
