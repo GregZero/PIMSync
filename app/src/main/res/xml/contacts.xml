@@ -25,5 +25,18 @@
             <Type type="mobile" />
             <Type type="custom" />
         </DataKind>
+        <DataKind kind="postal" needsStructured="false">
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+            <Type type="custom" />
+        </DataKind>
+        <DataKind kind="organization" maxOccurs="1" />
+        <DataKind kind="event" yearOptional="true">
+            <Type type="birthday" />
+        </DataKind>
+        <DataKind kind="note" maxOccurs="1" />
+        <DataKind kind="website" />
+        <DataKind kind="group_membership" maxOccurs="1" />
     </EditSchema>
 </ContactsAccountType>

@@ -192,11 +192,19 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             -1
         }
 
-        fun addData(mimeType: String, column: String, value: String, type: Int? = null) {
+        fun addData(
+            mimeType: String,
+            value: String,
+            type: Int? = null,
+            label: String? = null,
+            extraValues: Map<String, String> = emptyMap()
+        ) {
             val builder = ContentProviderOperation.newInsert(dataUri)
                 .withValue(ContactsContract.Data.MIMETYPE, mimeType)
-                .withValue(column, value)
             if (type != null) builder.withValue(ContactsContract.Data.DATA2, type)
+            if (label != null) builder.withValue(ContactsContract.Data.DATA3, label)
+            extraValues.forEach { (column, fieldValue) -> builder.withValue(column, fieldValue) }
+            if (value.isNotEmpty()) builder.withValue(ContactsContract.Data.DATA1, value)
             if (rawContactId == null) {
                 builder.withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, rawIndex)
             }
@@ -205,20 +213,86 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         }
 
         if (card.displayName.isNotBlank()) {
-            addData(ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, card.displayName)
+            val name = card.name
+            addData(
+                ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE,
+                card.displayName,
+                extraValues = mapOf(
+                    ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME to name.given,
+                    ContactsContract.CommonDataKinds.StructuredName.MIDDLE_NAME to name.additional,
+                    ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME to name.family,
+                    ContactsContract.CommonDataKinds.StructuredName.PREFIX to name.prefix,
+                    ContactsContract.CommonDataKinds.StructuredName.SUFFIX to name.suffix
+                )
+            )
         }
-        card.phones.forEach { addData(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Phone.NUMBER, it, ContactsContract.CommonDataKinds.Phone.TYPE_OTHER) }
-        card.emails.forEach { addData(ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Email.ADDRESS, it, ContactsContract.CommonDataKinds.Email.TYPE_OTHER) }
+        val phones = card.typedPhones.ifEmpty { card.phones.map { PimLabeledValue(it) } }
+        phones.forEach { addData(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE, it.value, contactType(it.type, "phone"), it.label.takeIf(String::isNotBlank)) }
+        val emails = card.typedEmails.ifEmpty { card.emails.map { PimLabeledValue(it) } }
+        emails.forEach { addData(ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE, it.value, contactType(it.type, "email"), it.label.takeIf(String::isNotBlank)) }
+        card.addresses.forEach { address ->
+            addData(
+                ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE,
+                address.formatted,
+                contactType(address.type, "postal"), address.label.takeIf(String::isNotBlank),
+                mapOf(
+                    ContactsContract.CommonDataKinds.StructuredPostal.POBOX to address.poBox,
+                    ContactsContract.CommonDataKinds.StructuredPostal.NEIGHBORHOOD to address.extended,
+                    ContactsContract.CommonDataKinds.StructuredPostal.STREET to address.street,
+                    ContactsContract.CommonDataKinds.StructuredPostal.CITY to address.city,
+                    ContactsContract.CommonDataKinds.StructuredPostal.REGION to address.region,
+                    ContactsContract.CommonDataKinds.StructuredPostal.POSTCODE to address.postcode,
+                    ContactsContract.CommonDataKinds.StructuredPostal.COUNTRY to address.country
+                )
+            )
+        }
+        if (card.organization.isNotBlank() || card.jobTitle.isNotBlank()) {
+            addData(
+                ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE,
+                card.organization,
+                ContactsContract.CommonDataKinds.Organization.TYPE_WORK,
+                extraValues = mapOf(
+                    ContactsContract.CommonDataKinds.Organization.TITLE to card.jobTitle,
+                    ContactsContract.CommonDataKinds.Organization.DEPARTMENT to card.department
+                )
+            )
+        }
+        card.birthday.takeIf(String::isNotBlank)?.let {
+            addData(ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE, it, ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY)
+        }
+        card.notes.filter(String::isNotBlank).joinToString("\n")
+            .takeIf(String::isNotBlank)
+            ?.let { addData(ContactsContract.CommonDataKinds.Note.CONTENT_ITEM_TYPE, it) }
+        card.websites.forEach {
+            addData(ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE, it.value)
+        }
+        card.categories.distinct().filter(String::isNotBlank).forEach { category ->
+            val groupId = ensureCategoryGroup(account, category)
+            addData(ContactsContract.CommonDataKinds.GroupMembership.CONTENT_ITEM_TYPE, groupId.toString())
+        }
         context.contentResolver.applyBatch(ContactsContract.AUTHORITY, operations)
     }
 
     private fun readCard(rawContactId: Long): PimContactCard {
         var displayName = ""
-        val phones = mutableListOf<String>()
-        val emails = mutableListOf<String>()
+        var name = PimStructuredName()
+        val phones = mutableListOf<PimLabeledValue>()
+        val emails = mutableListOf<PimLabeledValue>()
+        val addresses = mutableListOf<PimPostalAddress>()
+        var organization = ""
+        var department = ""
+        var jobTitle = ""
+        var birthday = ""
+        val notes = mutableListOf<String>()
+        val websites = mutableListOf<PimLabeledValue>()
+        val categories = mutableListOf<String>()
+        val groupTitles = readCategoryGroups()
         context.contentResolver.query(
             ContactsContract.Data.CONTENT_URI,
-            arrayOf(ContactsContract.Data.MIMETYPE, ContactsContract.Data.DATA1),
+            arrayOf(ContactsContract.Data.MIMETYPE, ContactsContract.Data.DATA1, ContactsContract.Data.DATA2,
+                ContactsContract.Data.DATA3, ContactsContract.Data.DATA4, ContactsContract.Data.DATA5,
+                ContactsContract.Data.DATA6, ContactsContract.Data.DATA7, ContactsContract.Data.DATA8,
+                ContactsContract.Data.DATA9, ContactsContract.Data.DATA10),
             "${ContactsContract.Data.RAW_CONTACT_ID} = ?",
             arrayOf(rawContactId.toString()),
             null
@@ -226,14 +300,115 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             while (cursor.moveToNext()) {
                 val mimeType = cursor.getString(0)
                 val value = cursor.getString(1).orEmpty()
+                val type = typeName(cursor.getInt(2), cursor.getString(3), mimeType)
+                val label = cursor.getString(3).orEmpty()
                 when (mimeType) {
-                    ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE -> displayName = value
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) phones += value
-                    ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) emails += value
+                    ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE -> {
+                        displayName = value
+                        name = PimStructuredName(
+                            family = cursor.getString(3).orEmpty(), given = cursor.getString(2).orEmpty(),
+                            additional = cursor.getString(5).orEmpty(), prefix = cursor.getString(4).orEmpty(),
+                            suffix = cursor.getString(6).orEmpty()
+                        )
+                    }
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) phones += PimLabeledValue(value, type, label)
+                    ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) emails += PimLabeledValue(value, type, label)
+                    ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE -> addresses += PimPostalAddress(
+                        type, label, cursor.getString(4).orEmpty(), cursor.getString(5).orEmpty(), cursor.getString(6).orEmpty(),
+                        cursor.getString(7).orEmpty(), cursor.getString(8).orEmpty(), cursor.getString(9).orEmpty(), cursor.getString(10).orEmpty()
+                    )
+                    ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE -> {
+                        organization = value
+                        jobTitle = cursor.getString(4).orEmpty()
+                        department = cursor.getString(5).orEmpty()
+                    }
+                    ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE -> if (cursor.getInt(2) == ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY) birthday = value
+                    ContactsContract.CommonDataKinds.Note.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) notes += value
+                    ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE -> if (value.isNotBlank()) websites += PimLabeledValue(value, type, label)
+                    ContactsContract.CommonDataKinds.GroupMembership.CONTENT_ITEM_TYPE -> value.toLongOrNull()
+                        ?.let(groupTitles::get)?.let(categories::add)
                 }
             }
         }
-        return PimContactCard(displayName, phones, emails)
+        return PimContactCard(displayName, phones.map { it.value }, emails.map { it.value }, name, phones, emails, addresses,
+            organization, department, jobTitle, birthday, notes, websites, categories)
+    }
+
+    private fun ensureCategoryGroup(account: Account, category: String): Long {
+        val resolver = context.contentResolver
+        val selection = "${ContactsContract.Groups.ACCOUNT_NAME} = ? AND ${ContactsContract.Groups.ACCOUNT_TYPE} = ? AND ${ContactsContract.Groups.TITLE} = ?"
+        val args = arrayOf(account.name, account.type, category)
+        resolver.query(ContactsContract.Groups.CONTENT_URI, arrayOf(ContactsContract.Groups._ID), selection, args, null)
+            ?.use { if (it.moveToFirst()) return it.getLong(0) }
+        val values = android.content.ContentValues().apply {
+            put(ContactsContract.Groups.ACCOUNT_NAME, account.name)
+            put(ContactsContract.Groups.ACCOUNT_TYPE, account.type)
+            put(ContactsContract.Groups.TITLE, category)
+            put(ContactsContract.Groups.GROUP_VISIBLE, 1)
+            put(ContactsContract.Groups.SHOULD_SYNC, 1)
+        }
+        return resolver.insert(syncAdapterUri(ContactsContract.Groups.CONTENT_URI), values)
+            ?.lastPathSegment?.toLongOrNull()
+            ?: error("Impossible de créer le groupe de contacts '$category'.")
+    }
+
+    private fun readCategoryGroups(): Map<Long, String> {
+        val groups = mutableMapOf<Long, String>()
+        context.contentResolver.query(
+            ContactsContract.Groups.CONTENT_URI,
+            arrayOf(ContactsContract.Groups._ID, ContactsContract.Groups.TITLE),
+            "${ContactsContract.Groups.ACCOUNT_TYPE} = ?",
+            arrayOf(PimSyncAccount.ACCOUNT_TYPE),
+            null
+        )?.use { cursor -> while (cursor.moveToNext()) groups[cursor.getLong(0)] = cursor.getString(1).orEmpty() }
+        return groups
+    }
+
+    private fun contactType(type: String, kind: String): Int = when (kind) {
+        "phone" -> when (type.lowercase()) {
+            "mobile", "cell" -> ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE
+            "home" -> ContactsContract.CommonDataKinds.Phone.TYPE_HOME
+            "work" -> ContactsContract.CommonDataKinds.Phone.TYPE_WORK
+            "custom" -> ContactsContract.CommonDataKinds.Phone.TYPE_CUSTOM
+            else -> ContactsContract.CommonDataKinds.Phone.TYPE_OTHER
+        }
+        "email" -> when (type.lowercase()) {
+            "mobile", "cell" -> ContactsContract.CommonDataKinds.Email.TYPE_MOBILE
+            "home" -> ContactsContract.CommonDataKinds.Email.TYPE_HOME
+            "work" -> ContactsContract.CommonDataKinds.Email.TYPE_WORK
+            "custom" -> ContactsContract.CommonDataKinds.Email.TYPE_CUSTOM
+            else -> ContactsContract.CommonDataKinds.Email.TYPE_OTHER
+        }
+        else -> when (type.lowercase()) {
+            "home" -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_HOME
+            "work" -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_WORK
+            "custom" -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_CUSTOM
+            else -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_OTHER
+        }
+    }
+
+    private fun typeName(type: Int, label: String?, mimeType: String): String = when (mimeType) {
+        ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE -> when (type) {
+            ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE -> "mobile"
+            ContactsContract.CommonDataKinds.Phone.TYPE_HOME -> "home"
+            ContactsContract.CommonDataKinds.Phone.TYPE_WORK -> "work"
+            ContactsContract.CommonDataKinds.Phone.TYPE_CUSTOM -> "custom"
+            else -> "other"
+        }
+        ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> when (type) {
+            ContactsContract.CommonDataKinds.Email.TYPE_MOBILE -> "mobile"
+            ContactsContract.CommonDataKinds.Email.TYPE_HOME -> "home"
+            ContactsContract.CommonDataKinds.Email.TYPE_WORK -> "work"
+            ContactsContract.CommonDataKinds.Email.TYPE_CUSTOM -> "custom"
+            else -> "other"
+        }
+        ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE -> when (type) {
+            ContactsContract.CommonDataKinds.StructuredPostal.TYPE_HOME -> "home"
+            ContactsContract.CommonDataKinds.StructuredPostal.TYPE_WORK -> "work"
+            ContactsContract.CommonDataKinds.StructuredPostal.TYPE_CUSTOM -> "custom"
+            else -> "other"
+        }
+        else -> "other"
     }
 
     private fun findRawContact(account: Account, objectId: String): RawContactRow? =
