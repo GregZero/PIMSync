@@ -47,13 +47,18 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             uploadAndroidChanges(account, engine)
             downloadPimSyncContacts(account, engine)
             ensureUngroupedContactsVisible(account)
-            val journalCount = engine.inspectAll().count {
-                it.objectId.startsWith(TEST_CONTACT_PREFIX) && it.state is ObjectState.Current
-            }
+            val inspections = engine.inspectAll().filter { it.objectId.startsWith(TEST_CONTACT_PREFIX) }
+            val journalCount = inspections.count { it.state is ObjectState.Current }
+            val conflictCount = inspections.count { it.state is ObjectState.Conflict }
             val contactCount = countAccountContacts(account)
+            val conflictNotice = if (conflictCount > 0) {
+                " ATTENTION : $conflictCount conflit(s) de contact à résoudre (bouton « Résoudre les conflits de contacts »)."
+            } else {
+                ""
+            }
             saveSyncResult(
                 "Réussite — journal : $journalCount contact(s) actif(s) de test ; Contacts Android : " +
-                    "$contactCount fiche(s) dans le compte PIMSync."
+                    "$contactCount fiche(s) dans le compte PIMSync.$conflictNotice"
             )
         } catch (error: Exception) {
             Log.e(TAG, "Synchronisation du compte Contacts PIMSync impossible", error)

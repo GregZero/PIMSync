@@ -93,6 +93,7 @@ class MainActivity : Activity() {
         addButton(content, "Activer le compte PIMSync et synchroniser") { enablePimSyncAccount() }
         addButton(content, "Créer un contact fictif dans le journal partagé") { createPimSyncTestContact() }
         addButton(content, "Afficher le résultat du dernier sync") { showContactsSyncResult() }
+        addButton(content, "Résoudre les conflits de contacts") { ContactConflictsUi(this).show() }
         addButton(content, "Vérifier si Android autorise l’écriture dans PIMSync") { diagnoseWritableAccount() }
         addButton(content, "Créer un contact dans Contacts en l’enregistrant sur PIMSync") { openPimSyncContactEditor() }
         content.addView(TextView(this).apply {
