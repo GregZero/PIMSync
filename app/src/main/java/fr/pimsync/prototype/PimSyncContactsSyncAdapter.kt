@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.provider.ContactsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import fr.pimsync.engine.ConflictHeads
 import fr.pimsync.engine.ObjectState
 import fr.pimsync.engine.PimSyncEngine
 import fr.pimsync.engine.VersionVector
@@ -38,14 +39,16 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                 ?: throw IOException("Choisissez d’abord le dossier PIMSync partagé dans l’application.")
             val root = DocumentFile.fromTreeUri(context, treeUri)?.takeIf { it.canRead() && it.canWrite() }
                 ?: throw IOException("Le dossier PIMSync partagé n’est pas accessible.")
-            val deviceId = preferences.getString("device_id", "telephone-a") ?: "telephone-a"
+            val deviceId = DeviceIdentity.current(context, preferences)
             val store = SafOperationStore(context.contentResolver, root, deviceId)
-            check(store.readAll().invalidRecords.isEmpty()) {
-                "Le journal contient un fichier incomplet. Attendez la fin de Syncthing puis relancez la synchronisation."
+            val journalRead = store.readAll()
+            check(journalRead.invalidRecords.isEmpty()) {
+                "Le journal contient un fichier incomplet ou écrit par une version plus récente de PIMSync. " +
+                    "Attendez la fin de Syncthing ou mettez l’application à jour, puis relancez la synchronisation."
             }
             val engine = PimSyncEngine(store, deviceId)
             uploadAndroidChanges(account, engine)
-            downloadPimSyncContacts(account, engine)
+            downloadPimSyncContacts(account, engine, deviceId)
             ensureUngroupedContactsVisible(account)
             val inspections = engine.inspectAll().filter { it.objectId.startsWith(TEST_CONTACT_PREFIX) }
             val journalCount = inspections.count { it.state is ObjectState.Current }
@@ -56,9 +59,20 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
             } else {
                 ""
             }
+            ConflictNotifier.update(
+                context,
+                preferences,
+                inspections.filter { it.state is ObjectState.Conflict }.map { it.objectId }.toSet()
+            )
+            val quarantineNotice = if (journalRead.quarantinedRecords.isNotEmpty()) {
+                " ${journalRead.quarantinedRecords.size} fichier(s) corrompu(s) du journal ignoré(s) : " +
+                    journalRead.quarantinedRecords.take(3).joinToString(", ") + "."
+            } else {
+                ""
+            }
             saveSyncResult(
                 "Réussite — journal : $journalCount contact(s) actif(s) de test ; Contacts Android : " +
-                    "$contactCount fiche(s) dans le compte PIMSync.$conflictNotice"
+                    "$contactCount fiche(s) dans le compte PIMSync.$conflictNotice$quarantineNotice"
             )
         } catch (error: Exception) {
             Log.e(TAG, "Synchronisation du compte Contacts PIMSync impossible", error)
@@ -133,7 +147,7 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
         }
     }
 
-    private fun downloadPimSyncContacts(account: Account, engine: PimSyncEngine) {
+    private fun downloadPimSyncContacts(account: Account, engine: PimSyncEngine, ownDeviceId: String) {
         val resolver = context.contentResolver
         val inspections = engine.inspectAll().filter { it.objectId.startsWith(TEST_CONTACT_PREFIX) }
         for (inspection in inspections) {
@@ -160,7 +174,20 @@ class PimSyncContactsSyncAdapter(private val context: Context) : AbstractThreade
                         arrayOf(existing.id.toString())
                     )
                 }
-                is ObjectState.Conflict, ObjectState.Missing -> Unit
+                is ObjectState.Conflict -> if (existing == null) {
+                    // Keep the contact visible while the conflict is open: show one of the competing versions.
+                    // Every version stays in the journal, so nothing is decided until the user resolves it.
+                    ConflictHeads.preferredForDisplay(state.concurrentOperations, ownDeviceId)?.let { shown ->
+                        replaceRawContact(
+                            account = account,
+                            rawContactId = null,
+                            objectId = inspection.objectId,
+                            card = VCardCodec.decode(shown.payload.orEmpty()),
+                            version = shown.version
+                        )
+                    }
+                }
+                ObjectState.Missing -> Unit
             }
         }
     }

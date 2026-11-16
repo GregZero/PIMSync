@@ -99,14 +99,21 @@ object VCardCodec {
         val categories = mutableListOf<String>()
 
         for (line in lines) {
-            val separator = line.indexOf(':')
+            val separator = indexOfUnquoted(line, ':')
             if (separator < 1) continue
             val head = line.substring(0, separator)
-            val property = head.substringAfterLast('.').substringBefore(';').uppercase()
-            val params = head.substringAfter(';', "").split(';').mapNotNull { parameter ->
+            val headParts = splitUnquoted(head, ';')
+            val property = headParts.first().substringAfterLast('.').uppercase()
+            val params = mutableMapOf<String, String>()
+            headParts.drop(1).forEach { parameter ->
                 val index = parameter.indexOf('=')
-                if (index > 0) parameter.substring(0, index).uppercase() to parameter.substring(index + 1).trim('"') else null
-            }.toMap()
+                if (index > 0) {
+                    val key = parameter.substring(0, index).uppercase()
+                    val parameterValue = parameterValue(parameter.substring(index + 1))
+                    // Other applications repeat TYPE (TYPE=CELL;TYPE=VOICE): keep every value.
+                    params[key] = if (key == "TYPE" && key in params) "${params[key]},$parameterValue" else parameterValue
+                }
+            }
             val raw = line.substring(separator + 1)
             when (property) {
                 "FN" -> if (displayName.isBlank()) displayName = unescape(raw)
@@ -156,12 +163,12 @@ object VCardCodec {
 
     private fun labeledLine(property: String, value: PimLabeledValue): String = buildString {
         append("$property;TYPE=${parameter(value.type)}")
-        if (value.label.isNotBlank()) append(";X-ABLABEL=\"${value.label.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        if (value.label.isNotBlank()) append(";X-ABLABEL=\"${quoteParameter(value.label)}\"")
         append(":${escape(value.value)}\r\n")
     }
 
     private fun normalizedType(value: String?): String {
-        val types = value?.lowercase()?.split(',').orEmpty()
+        val types = value?.lowercase()?.split(',')?.map { it.trim() }.orEmpty()
         return when {
             "cell" in types || "mobile" in types -> "mobile"
             "home" in types -> "home"
@@ -172,6 +179,62 @@ object VCardCodec {
     }
 
     private fun parameter(value: String): String = value.uppercase().filter { it.isLetterOrDigit() || it == '-' }.ifBlank { "OTHER" }
+
+    /** Escapes a parameter value that will be written between double quotes; line breaks become spaces. */
+    private fun quoteParameter(value: String): String = value
+        .replace("\r\n", " ")
+        .replace('\r', ' ')
+        .replace('\n', ' ')
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+
+    /** Reads a parameter value, removing optional double quotes and their backslash escapes. */
+    private fun parameterValue(raw: String): String {
+        val value = raw.trim()
+        if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value
+        val inner = value.substring(1, value.length - 1)
+        val result = StringBuilder(inner.length)
+        var index = 0
+        while (index < inner.length) {
+            val character = inner[index++]
+            if (character == '\\' && index < inner.length) result.append(inner[index++]) else result.append(character)
+        }
+        return result.toString()
+    }
+
+    private fun indexOfUnquoted(value: String, target: Char): Int {
+        var quoted = false
+        var escaped = false
+        for ((index, char) in value.withIndex()) {
+            when {
+                escaped -> escaped = false
+                quoted && char == '\\' -> escaped = true
+                char == '"' -> quoted = !quoted
+                char == target && !quoted -> return index
+            }
+        }
+        return -1
+    }
+
+    private fun splitUnquoted(value: String, delimiter: Char): List<String> {
+        val result = mutableListOf<String>()
+        var start = 0
+        var quoted = false
+        var escaped = false
+        for ((index, char) in value.withIndex()) {
+            when {
+                escaped -> escaped = false
+                quoted && char == '\\' -> escaped = true
+                char == '"' -> quoted = !quoted
+                char == delimiter && !quoted -> {
+                    result += value.substring(start, index)
+                    start = index + 1
+                }
+            }
+        }
+        result += value.substring(start)
+        return result
+    }
 
     private fun splitEscaped(value: String, delimiter: Char): List<String> {
         val result = mutableListOf<String>()
@@ -190,6 +253,8 @@ object VCardCodec {
     }
 
     private fun escape(value: String): String = value
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
         .replace("\\", "\\\\")
         .replace("\n", "\\n")
         .replace(",", "\\,")

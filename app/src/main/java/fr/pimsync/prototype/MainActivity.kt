@@ -83,21 +83,22 @@ class MainActivity : Activity() {
             textSize = 18f
         })
         deviceId = EditText(this).apply {
-            hint = "Identifiant de cet appareil (ex. telephone-a)"
-            setText(preferences.getString("device_id", "telephone-a"))
+            hint = "Identifiant de cet appareil (ex. tel-3f9a2c)"
+            setText(DeviceIdentity.current(this@MainActivity, preferences))
             setSingleLine(true)
         }
         content.addView(deviceId, matchWidth())
         addButton(content, "Enregistrer l’identifiant") { saveDeviceId() }
         addButton(content, "Choisir le dossier PIMSync existant") { chooseFolder() }
         addButton(content, "Activer le compte PIMSync et synchroniser") { enablePimSyncAccount() }
+        addButton(content, "Synchroniser maintenant") { syncNow() }
         addButton(content, "Créer un contact fictif dans le journal partagé") { createPimSyncTestContact() }
         addButton(content, "Afficher le résultat du dernier sync") { showContactsSyncResult() }
         addButton(content, "Résoudre les conflits de contacts") { ContactConflictsUi(this).show() }
         addButton(content, "Vérifier si Android autorise l’écriture dans PIMSync") { diagnoseWritableAccount() }
         addButton(content, "Créer un contact dans Contacts en l’enregistrant sur PIMSync") { openPimSyncContactEditor() }
         content.addView(TextView(this).apply {
-            text = "Le bouton de création ouvre Contacts avec le compte PIMSync présélectionné. Après l’enregistrement, reviens ici et touche « Activer le compte PIMSync et synchroniser », puis vérifie l’arrivée sur l’autre téléphone."
+            text = "Le bouton de création ouvre Contacts avec le compte PIMSync présélectionné. Après l’enregistrement, reviens ici et touche « Synchroniser maintenant », puis vérifie l’arrivée sur l’autre téléphone."
             textSize = 16f
         })
         status = TextView(this).apply {
@@ -111,6 +112,11 @@ class MainActivity : Activity() {
             }
             field.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) keepVisible() }
             field.setOnClickListener { keepVisible() }
+        }
+        if (preferences.getBoolean(PimSyncAccount.PREFERENCE_ACCOUNT_ENABLED, false)) PimSyncSchedule.enablePeriodic()
+        requestNotificationPermissionOnce()
+        if (intent?.getBooleanExtra(ConflictNotifier.EXTRA_OPEN_CONFLICTS, false) == true) {
+            ContactConflictsUi(this).show()
         }
         updateStatus()
     }
@@ -291,7 +297,7 @@ class MainActivity : Activity() {
             if (comment.isNotEmpty()) " — $comment" else ""
         val old = preferences.getString(KEY_GUIDE_RESULTS, "").orEmpty()
         preferences.edit()
-            .putString(KEY_GUIDE_RESULTS, listOf(old, "Session $code / appareil ${preferences.getString("device_id", "telephone-a")}", line)
+            .putString(KEY_GUIDE_RESULTS, listOf(old, "Session $code / appareil ${DeviceIdentity.current(this@MainActivity, preferences)}", line)
                 .filter { it.isNotBlank() }.joinToString("\n"))
             .putInt(KEY_GUIDE_STEP, if (success) (index + 1).coerceAtMost(guideSteps.lastIndex) else index)
             .apply()
@@ -419,6 +425,7 @@ class MainActivity : Activity() {
             AccountManager.get(this).addAccountExplicitly(account, null, null)
             ContentResolver.setIsSyncable(account, PimSyncAccount.AUTHORITY, 1)
             ContentResolver.setSyncAutomatically(account, PimSyncAccount.AUTHORITY, true)
+            PimSyncSchedule.enablePeriodic()
             preferences.edit().putBoolean(PimSyncAccount.PREFERENCE_ACCOUNT_ENABLED, true).apply()
             ContentResolver.requestSync(account, PimSyncAccount.AUTHORITY, Bundle().apply {
                 putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
@@ -428,6 +435,23 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             status.text = "Activation du compte Contacts PIMSync impossible : ${e.message ?: e.javaClass.simpleName}"
         }
+    }
+
+    private fun syncNow() {
+        if (!preferences.getBoolean(PimSyncAccount.PREFERENCE_ACCOUNT_ENABLED, false)) {
+            status.text = "Active d’abord le compte PIMSync avec « Activer le compte PIMSync et synchroniser »."
+            return
+        }
+        PimSyncSchedule.requestNow()
+        status.text = "Synchronisation demandée. Touche « Afficher le résultat du dernier sync » dans quelques secondes."
+    }
+
+    private fun requestNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        if (preferences.getBoolean("notification_permission_asked", false)) return
+        preferences.edit().putBoolean("notification_permission_asked", true).apply()
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
     }
 
     private fun showContactsSyncResult() {
@@ -823,7 +847,7 @@ class MainActivity : Activity() {
             ?: error("Ouverture en lecture refusée")
 
     private fun updateStatus(prefix: String? = null) {
-        val id = preferences.getString("device_id", "telephone-a")
+        val id = DeviceIdentity.current(this, preferences)
         val folder = selectedTree?.lastPathSegment ?: "aucun"
         status.text = listOfNotNull(prefix, "Appareil : $id", "Dossier SAF : $folder").joinToString("\n")
     }
@@ -833,6 +857,7 @@ class MainActivity : Activity() {
         private const val REQUEST_READ_CONTACTS = 43
         private const val REQUEST_PICK_CONTACT = 44
         private const val REQUEST_CONTACT_ACCOUNT = 46
+        private const val REQUEST_NOTIFICATIONS = 47
         private const val GUIDE_CONTACTS_STEP = 9
         private const val GUIDE_CONTACT_PREVIEW_STEP = 10
         private const val GUIDE_NATIVE_ACCOUNT_STEP = 11

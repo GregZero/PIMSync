@@ -6,7 +6,10 @@ import fr.pimsync.engine.Operation
 import fr.pimsync.engine.OperationKind
 import fr.pimsync.engine.OperationReadResult
 import fr.pimsync.engine.OperationStore
+import fr.pimsync.engine.RecordPolicy
+import fr.pimsync.engine.RecordVerdict
 import fr.pimsync.engine.VersionVector
+import org.json.JSONException
 import org.json.JSONObject
 
 /** Reads immutable records from every device journal and appends only to this device's journal. */
@@ -22,35 +25,58 @@ class SafOperationStore(
         val operations = mutableListOf<Operation>()
         val invalid = mutableListOf<String>()
         val ignored = mutableListOf<String>()
+        val quarantined = mutableListOf<String>()
+        val now = System.currentTimeMillis()
+
+        // A file that cannot be read as an operation stops writes while it may still be incomplete or needs a
+        // newer app, but a complete file that stays unusable for good is set aside instead of blocking forever.
+        fun setAside(path: String, file: DocumentFile, newerSchema: Boolean) {
+            val verdict = RecordPolicy.verdict(
+                dataLevelFailure = true,
+                newerSchema = newerSchema,
+                modifiedAtMillis = file.lastModified(),
+                nowMillis = now
+            )
+            if (verdict == RecordVerdict.QUARANTINE) quarantined += path else invalid += path
+        }
 
         for (deviceDirectory in devices.listFiles().filter { it.isDirectory }) {
             val journal = deviceDirectory.findFile("operations") ?: continue
             for (file in journal.listFiles().filter { it.isFile && it.name.orEmpty().let(::isOperationFile) }) {
                 val path = "${deviceDirectory.name}/${file.name}"
+                // Replicated files can be observed before Syncthing has finished writing them: retry later.
+                val text = try {
+                    contentResolver.openInputStream(file.uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                } catch (_: Exception) {
+                    null
+                }
+                if (text == null) {
+                    invalid += path
+                    continue
+                }
+                val json = try {
+                    JSONObject(text)
+                } catch (_: JSONException) {
+                    setAside(path, file, newerSchema = false)
+                    continue
+                }
+                if (json.optString("type") == "prototype-check") {
+                    ignored += path
+                    continue
+                }
+                if (json.optString("format") != FORMAT) {
+                    setAside(path, file, newerSchema = false)
+                    continue
+                }
                 try {
-                    val text = contentResolver.openInputStream(file.uri)
-                        ?.bufferedReader(Charsets.UTF_8)
-                        ?.use { it.readText() }
-                        ?: error("Le fournisseur SAF n’a pas ouvert le fichier en lecture")
-                    val json = JSONObject(text)
-                    if (json.optString("type") == "prototype-check") {
-                        ignored += path
-                        continue
-                    }
-                    if (json.optString("format") != FORMAT) {
-                        invalid += path
-                        continue
-                    }
                     operations += decode(json)
                 } catch (_: Exception) {
-                    // A replicated file can be observed before Syncthing has finished writing it.
-                    // Keep it visible as incomplete and retry on the next manual refresh.
-                    invalid += path
+                    setAside(path, file, newerSchema = json.optInt("schemaVersion", 0) > Operation.CURRENT_SCHEMA_VERSION)
                 }
             }
         }
 
-        return OperationReadResult(operations, invalid.distinct(), ignored.distinct())
+        return OperationReadResult(operations, invalid.distinct(), ignored.distinct(), quarantined.distinct())
     }
 
     override fun append(operation: Operation) {

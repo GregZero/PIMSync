@@ -5,7 +5,9 @@ data class OperationReadResult(
     /** Files that were incomplete, corrupt, or from an unknown schema; they are never treated as valid edits. */
     val invalidRecords: List<String> = emptyList(),
     /** Older prototype-only records that do not contain PIMSync operations. */
-    val ignoredRecords: List<String> = emptyList()
+    val ignoredRecords: List<String> = emptyList(),
+    /** Complete but permanently unusable files, set aside so that they no longer block synchronisation. */
+    val quarantinedRecords: List<String> = emptyList()
 )
 
 interface OperationStore {

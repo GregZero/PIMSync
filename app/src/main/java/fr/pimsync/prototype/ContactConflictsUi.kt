@@ -29,6 +29,7 @@ class ContactConflictsUi(private val activity: Activity) {
         toast("Lecture du journal PIMSync…")
         withEngine({ engine -> loadConflicts(engine) }) { conflicts ->
             if (conflicts.isEmpty()) {
+                ConflictNotifier.update(activity, preferences, emptySet())
                 AlertDialog.Builder(activity)
                     .setTitle("Conflits de contacts")
                     .setMessage("Aucun conflit à résoudre dans le journal PIMSync.")
@@ -174,7 +175,7 @@ class ContactConflictsUi(private val activity: Activity) {
             ?: error("Choisissez d’abord le dossier PIMSync partagé dans l’application.")
         val root = DocumentFile.fromTreeUri(activity, treeUri)?.takeIf { it.canRead() && it.canWrite() }
             ?: error("Le dossier PIMSync partagé n’est pas accessible.")
-        val deviceId = preferences.getString("device_id", "telephone-a") ?: "telephone-a"
+        val deviceId = DeviceIdentity.current(activity, preferences)
         return PimSyncEngine(SafOperationStore(activity.contentResolver, root, deviceId), deviceId)
     }
 
